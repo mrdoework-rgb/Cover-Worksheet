@@ -15,13 +15,13 @@ from docx.shared import Pt
 
 
 DEFAULT_WORKSHEET_STRUCTURE = """Every worksheet must structurally contain the following content, mapped to the JSON schema in Part 2:
-  1. Core Text: A very short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, display it prominently (e.g., $$Formula$$).
-  2. Quick Questions: Exactly 8 binary-choice questions formatted strictly as "Does [Factor A] affect [Option X] or [Option Y]?" or "Is [Concept] an example of [Option X] or [Option Y]?". Answers must be directly extractable from the core text. Put an answer line after every quick question, using a short blank line or "____" marker so students can write their answers.
+  1. Core Text: A short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, display it prominently (e.g., $$Formula$$).
+  2. Quick Questions: Exactly 4 questions that elicit a keyword defined in the paragraph. Then Exactly 4 binary-choice questions formatted strictly as "Does [Factor A] affect [Option X] or [Option Y]?" or "Is [Concept] an example of [Option X] or [Option Y]?". Answers must be directly extractable from the core text. Put an answer line after every quick question, use a "________" marker so students can write their answers.
   3. True or False: Exactly 8 simple statement verification questions.
   4. Factor Summary Table: A comparison table with between 2 to 5 columns where students can classify 4 distinct items/factors from the text. Make about 60% of the cells empty so students can complete them, while keeping the table structure clear.
   5. Fill in the Blanks: A short paragraph cloze activity (3-4 sentences) with a clean Word Bank listed directly under it.
   6. Application Problems: Exactly 6 simple contextual questions that push students to apply the content in straightforward ways.
-  7. Extension: Exactly 3 higher tier type contextual application questions pushing students to apply knowledge to novel scenarios, evaluate safety/experimental designs, or explain "why". Leave an empty line between the application questions and the extension questions.
+  7. Extension: Exactly 3 higher tier type contextual application questions pushing students to apply knowledge to novel scenarios, evaluate safety/experimental designs, or explain "why".
 """
 
 PROMPT_TEMPLATE = """You are an expert GCSE Science resource creator specializing in evidence-based pedagogies for lower-attaining and SEND students, combined with a precise JSON parsing architecture.
@@ -126,7 +126,7 @@ def resolve_gemini_api_key():
         scrolling=False,
     )
     st.markdown(
-        "Create your Google Gemini API Key 👉 "
+        "Create your Google Gemini API Key (If it doesn't let you get an API key you might have to verify your age for you google account - it shows a link to do this) 👉 "
         "[https://aistudio.google.com/](https://aistudio.google.com/)"
     )
     return st.text_input(
@@ -198,6 +198,10 @@ def call_gemini_api(topic, year_group=None, ability=None, api_key=None, workshee
 
 
 # --- 3. V3 COMPONENT DOCUMENT COMPILER ---
+def is_answer_key_heading(content):
+    return re.sub(r'\s+', ' ', str(content or "")).strip().lower() == "answer key"
+
+
 def generate_worksheet(json_data, template_path):
     template = Path(template_path)
     doc = Document(template) if template.exists() else Document()
@@ -216,9 +220,12 @@ def generate_worksheet(json_data, template_path):
                 b_type = block.get("type", "unknown")
 
                 if b_type == "subheading":
+                    content = block.get("content", "")
+                    if is_answer_key_heading(content):
+                        continue
                     new_p = p.insert_paragraph_before('')
                     new_p.style = 'Heading 2'
-                    append_science_text(new_p, block.get("content", ""))
+                    append_science_text(new_p, content)
 
                 elif b_type == "paragraph":
                     new_p = p.insert_paragraph_before('')
@@ -233,8 +240,14 @@ def generate_worksheet(json_data, template_path):
                 elif b_type == "long_question":
                     new_p = p.insert_paragraph_before('')
                     new_p.style = 'List Number'
-                    new_p.paragraph_format.space_after = Pt(24)
+                    new_p.paragraph_format.space_after = Pt(12)
                     append_science_text(new_p, clean_question_text(block.get("content", "")))
+
+                    for _ in range(2):
+                        blank_p = p.insert_paragraph_before('')
+                        blank_p.style = 'Normal'
+                        blank_p.paragraph_format.space_before = Pt(0)
+                        blank_p.paragraph_format.space_after = Pt(0)
 
                 elif b_type == "answer_key":
                     continue
@@ -338,7 +351,7 @@ def main():
     year_group_input = st.text_input("Year Group", placeholder="e.g. Year 10")
     ability_input = st.text_input("What is the ability of the group?", placeholder="e.g. Lower-attaining / mixed / high ability")
     worksheet_structure_input = st.text_area(
-        "Worksheet elements",
+        "Worksheet elements-You can modify the prompt here",
         value=DEFAULT_WORKSHEET_STRUCTURE,
         height=220,
         help="Edit the worksheet structure here before generating the worksheet.",
@@ -357,9 +370,7 @@ def main():
 
     with st.expander("Template guidance", expanded=False):
         st.write(
-            "This app creates a cover lesson worksheet from your topic, year group, and ability level. It sends the request to Gemini, "
-            "builds a Word document, and can also generate a separate answers document. The app is hosted in the cloud and the code is "
-            "stored in GitHub."
+            "The template is a Word document that contains the basic structure and formatting for your worksheet. If you want to modify what the worksheet looks like then you can edit the template given below, you can change the font, add logos, add a header or footer. The template uses 'Styles'; the styles used are listed below. The template should include placeholders for the worksheet title and content, which will be replaced with the generated content from Gemini."
         )
         st.table(
             {
