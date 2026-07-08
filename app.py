@@ -347,9 +347,14 @@ def main():
         "GitHub stores the project files and keeps the app organised, so it can be shared and updated easily."
     )
 
-    topic_input = st.text_input("What should this worksheet be about", placeholder="e.g. Photosynthesis")
-    year_group_input = st.text_input("Year Group", placeholder="e.g. Year 10")
-    ability_input = st.text_input("What is the ability of the group?", placeholder="e.g. Lower-attaining / mixed / high ability")
+    st.markdown("**What should this worksheet be about**")
+    topic_input = st.text_input("", placeholder="e.g. Photosynthesis give the equation and explain how temperature, light intensity and CO2 affect the rate", label_visibility="collapsed")
+
+    st.markdown("**Year Group**")
+    year_group_input = st.text_input("", placeholder="e.g. Year 10", label_visibility="collapsed")
+
+    st.markdown("**What is the ability of the group?**")
+    ability_input = st.text_input("", placeholder="e.g. Lower-attaining / mixed / high ability", label_visibility="collapsed")
     worksheet_structure_input = st.text_area(
         "Worksheet elements-You can modify the prompt here",
         value=DEFAULT_WORKSHEET_STRUCTURE,
