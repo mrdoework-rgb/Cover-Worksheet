@@ -1,8 +1,13 @@
+import sys
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from docx import Document
 
-from app import append_science_text
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app import append_science_text, render_section_label
 
 
 class AppendScienceTextTests(unittest.TestCase):
@@ -26,6 +31,12 @@ class AppendScienceTextTests(unittest.TestCase):
 
         self.assertEqual(paragraph.runs[4].text, "O")
         self.assertFalse(paragraph.runs[4].font.subscript)
+
+    def test_render_section_label_uses_strong_html(self):
+        with patch("app.st.markdown") as mock_markdown:
+            render_section_label("Year Group")
+
+        mock_markdown.assert_called_once_with("<strong>Year Group</strong>", unsafe_allow_html=True)
 
 
 if __name__ == "__main__":

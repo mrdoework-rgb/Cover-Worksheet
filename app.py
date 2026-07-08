@@ -115,6 +115,10 @@ def clean_question_text(raw_text):
     return cleaned.strip()
 
 
+def render_section_label(text):
+    st.markdown(f"<strong>{text}</strong>", unsafe_allow_html=True)
+
+
 # --- 2. GEMINI API HELPERS ---
 def build_gemini_prompt(topic, year_group=None, ability=None, worksheet_structure=None):
     year_group_text = (year_group or "unknown").strip()
@@ -369,13 +373,13 @@ def main():
         "GitHub stores the project files and keeps the app organised, so it can be shared and updated easily."
     )
 
-    st.markdown("**What should this worksheet be about**")
+    render_section_label("What should this worksheet be about")
     topic_input = st.text_input("", placeholder="e.g. Photosynthesis give the equation and explain how temperature, light intensity and CO2 affect the rate", label_visibility="collapsed")
 
-    st.markdown("**Year Group**")
+    render_section_label("Year Group")
     year_group_input = st.text_input("", placeholder="e.g. Year 10", label_visibility="collapsed")
 
-    st.markdown("**What is the ability of the group?**")
+    render_section_label("What is the ability of the group?")
     ability_input = st.text_input("", placeholder="e.g. Lower-attaining / mixed / high ability", label_visibility="collapsed")
     worksheet_structure_input = st.text_area(
         "Worksheet elements-You can modify the prompt here",
