@@ -41,6 +41,7 @@ Always adhere to the following layout, tone, and structural constraints when des
 - Make the core text, every question, and every instruction suitable for the class age and ability level.
 - For the Application Problems and Extension sections, use the JSON type "long_question" for each question so they are visually separated with extra spacing in the Word document.
 - The final part of the JSON must be an answer key. It should be a numbered list of all the answers and should use the JSON type "answer_key".
+- If you want text to appear bold in the Word document, wrap that text in double asterisks, for example **important**. These markers must be interpreted as bold formatting when the text is injected into the document.
 {worksheet_structure}
 
 ### PART 2: JSON SCHEMA & TECHNICAL CONSTRAINTS
@@ -55,12 +56,15 @@ Always adhere to the following layout, tone, and structural constraints when des
 ### JSON Structure Definition:
 - `worksheet_title`: (String) The main title of the resource.
 - `document_blocks`: (Array of Objects) The sequential content of the document. EVERY object must have a `"type"` key. The `"type"` MUST be exactly one of these seven strings:
-    - If type is "subheading", "paragraph", "question", "long_question", or "answer_key": Include a `"content"` key with the text. Apply Subscript Rules.
+    - If type is "subheading", "paragraph", "question", "long_question", or "answer_key": Include a `"content"` key with the text. Apply Subscript Rules and Bold Text Rules.
     - If type is "image": Include a `"content"` key containing a brief text description of a useful diagram for this topic.
     - If type is "table": Do NOT include a `"content"` key. Instead, include a `"table_data"` object containing:
         - `has_headers`: (Boolean)
         - `column_count`: (Integer)
-        - `rows`: (Array of Arrays of Strings) Apply Subscript Rules to cell text.
+        - `rows`: (Array of Arrays of Strings) Apply Subscript Rules and Bold Text Rules to cell text.
+
+### FORMATTING RULES
+- Bold text must be wrapped in double asterisks, e.g. **important**. The document renderer will parse these markers as bold formatting when the content is injected into the Word document.
 
 ### MAPPING GUIDE (How to construct the JSON from the parts):
 - Use "subheading" blocks to transition between the mandatory parts (e.g., "content": "Part 1: Quick Questions").
@@ -75,14 +79,32 @@ Immediately output the complete raw JSON object for the topic: {topic}. Do not i
 
 # --- 1. CHEMISTRY REGEX FUNCTION ---
 def append_science_text(paragraph, raw_text):
-    parts = re.split(r'(<sub>.*?</sub>)', raw_text)
-    for part in parts:
-        if part.startswith('<sub>') and part.endswith('</sub>'):
-            subscript_content = part.replace('<sub>', '').replace('</sub>', '')
+    if raw_text is None:
+        return
+
+    text = str(raw_text)
+    pattern = re.compile(r'(\*\*.+?\*\*|<sub>.+?</sub>)')
+    last_end = 0
+
+    for match in pattern.finditer(text):
+        if match.start() > last_end:
+            paragraph.add_run(text[last_end:match.start()])
+
+        tag = match.group(1)
+        if tag.startswith('**') and tag.endswith('**'):
+            run = paragraph.add_run(tag[2:-2])
+            run.font.bold = True
+        elif tag.startswith('<sub>') and tag.endswith('</sub>'):
+            subscript_content = tag[5:-6]
             run = paragraph.add_run(subscript_content)
             run.font.subscript = True
         else:
-            paragraph.add_run(part)
+            paragraph.add_run(tag)
+
+        last_end = match.end()
+
+    if last_end < len(text):
+        paragraph.add_run(text[last_end:])
 
 
 def clean_question_text(raw_text):
