@@ -9,9 +9,20 @@ from pathlib import Path
 from uuid import uuid4
 
 import streamlit as st
+import streamlit.components.v1 as components
 from docx import Document
 from docx.shared import Pt
 
+
+DEFAULT_WORKSHEET_STRUCTURE = """Every worksheet must structurally contain the following content, mapped to the JSON schema in Part 2:
+  1. Core Text: A very short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, display it prominently (e.g., $$Formula$$).
+  2. Quick Questions: Exactly 8 binary-choice questions formatted strictly as "Does [Factor A] affect [Option X] or [Option Y]?" or "Is [Concept] an example of [Option X] or [Option Y]?". Answers must be directly extractable from the core text. Put an answer line after every quick question, using a short blank line or "____" marker so students can write their answers.
+  3. True or False: Exactly 8 simple statement verification questions.
+  4. Factor Summary Table: A comparison table with between 2 to 5 columns where students can classify 4 distinct items/factors from the text. Make about 60% of the cells empty so students can complete them, while keeping the table structure clear.
+  5. Fill in the Blanks: A short paragraph cloze activity (3-4 sentences) with a clean Word Bank listed directly under it.
+  6. Application Problems: Exactly 6 simple contextual questions that push students to apply the content in straightforward ways.
+  7. Extension: Exactly 3 higher tier type contextual application questions pushing students to apply knowledge to novel scenarios, evaluate safety/experimental designs, or explain "why". Leave an empty line between the application questions and the extension questions.
+"""
 
 PROMPT_TEMPLATE = """You are an expert GCSE Science resource creator specializing in evidence-based pedagogies for lower-attaining and SEND students, combined with a precise JSON parsing architecture.
 
@@ -30,14 +41,7 @@ Always adhere to the following layout, tone, and structural constraints when des
 - Make the core text, every question, and every instruction suitable for the class age and ability level.
 - For the Application Problems and Extension sections, use the JSON type "long_question" for each question so they are visually separated with extra spacing in the Word document.
 - The final part of the JSON must be an answer key. It should be a numbered list of all the answers and should use the JSON type "answer_key".
-- Every worksheet must structurally contain the following content, mapped to the JSON schema in Part 2:
-  1. Core Text: A very short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, display it prominently (e.g., $$Formula$$).
-  2. Quick Questions: Exactly 8 binary-choice questions formatted strictly as "Does [Factor A] affect [Option X] or [Option Y]?" or "Is [Concept] an example of [Option X] or [Option Y]?". Answers must be directly extractable from the core text. Put an answer line after every quick question, using a short blank line or "____" marker so students can write their answers.
-  3. True or False: Exactly 8 simple statement verification questions.
-  4. Factor Summary Table: A comparison table with 2 or 3 columns where students can classify 4 distinct items/factors from the text. Make about 60% of the cells empty so students can complete them, while keeping the table structure clear.
-  5. Fill in the Blanks: A short paragraph cloze activity (3-4 sentences) with a clean Word Bank listed directly under it.
-  6. Application Problems: Exactly 6 simple contextual questions that push students to apply the content in straightforward ways.
-  7. Extension: Exactly 3 higher tier type contextual application questions pushing students to apply knowledge to novel scenarios, evaluate safety/experimental designs, or explain "why". Leave an empty line between the application questions and the extension questions.
+{worksheet_structure}
 
 ### PART 2: JSON SCHEMA & TECHNICAL CONSTRAINTS
 
@@ -90,10 +94,16 @@ def clean_question_text(raw_text):
 
 
 # --- 2. GEMINI API HELPERS ---
-def build_gemini_prompt(topic, year_group=None, ability=None):
+def build_gemini_prompt(topic, year_group=None, ability=None, worksheet_structure=None):
     year_group_text = (year_group or "unknown").strip()
     ability_text = (ability or "unknown").strip()
-    return PROMPT_TEMPLATE.format(topic=topic.strip(), year_group=year_group_text, ability=ability_text)
+    structure_text = (worksheet_structure or DEFAULT_WORKSHEET_STRUCTURE).strip()
+    return PROMPT_TEMPLATE.format(
+        topic=topic.strip(),
+        year_group=year_group_text,
+        ability=ability_text,
+        worksheet_structure=structure_text,
+    )
 
 
 def get_gemini_api_key():
@@ -109,7 +119,12 @@ def get_gemini_api_key():
 
 def resolve_gemini_api_key():
     st.markdown("Watch this video to learn how to get a Free Gemini API key")
-    st.video("https://www.youtube.com/watch?v=6BRyynZkvf0", format="video", start_time=0)
+    components.iframe(
+        "https://www.youtube.com/embed/Uyn-P2nRvDA",
+        height=158,
+        width=280,
+        scrolling=False,
+    )
     st.markdown(
         "Create your Google Gemini API Key 👉 "
         "[https://aistudio.google.com/](https://aistudio.google.com/)"
@@ -143,7 +158,7 @@ def parse_gemini_response(response_data):
     return json.loads(cleaned_text)
 
 
-def call_gemini_api(topic, year_group=None, ability=None, api_key=None):
+def call_gemini_api(topic, year_group=None, ability=None, api_key=None, worksheet_structure=None):
     if not topic or not topic.strip():
         raise ValueError("Please enter a topic first.")
 
@@ -157,7 +172,7 @@ def call_gemini_api(topic, year_group=None, ability=None, api_key=None):
         "contents": [
             {
                 "role": "user",
-                "parts": [{"text": build_gemini_prompt(topic, year_group=year_group, ability=ability)}],
+                "parts": [{"text": build_gemini_prompt(topic, year_group=year_group, ability=ability, worksheet_structure=worksheet_structure)}],
             }
         ],
         "generationConfig": {"temperature": 0.1},
@@ -322,6 +337,12 @@ def main():
     topic_input = st.text_input("What should this worksheet be about", placeholder="e.g. Photosynthesis")
     year_group_input = st.text_input("Year Group", placeholder="e.g. Year 10")
     ability_input = st.text_input("What is the ability of the group?", placeholder="e.g. Lower-attaining / mixed / high ability")
+    worksheet_structure_input = st.text_area(
+        "Worksheet elements",
+        value=DEFAULT_WORKSHEET_STRUCTURE,
+        height=220,
+        help="Edit the worksheet structure here before generating the worksheet.",
+    )
     api_key_input = resolve_gemini_api_key()
     uploaded_template = st.file_uploader("Optional: upload a Word template (.docx)", type=["docx"])
 
@@ -377,6 +398,7 @@ def main():
                         year_group=year_group_input,
                         ability=ability_input,
                         api_key=api_key_input or None,
+                        worksheet_structure=worksheet_structure_input,
                     )
                 template_path = prepare_template_path(uploaded_template)
                 word_buffer, doc_title = generate_worksheet(json_data, template_path)
