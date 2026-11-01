@@ -15,10 +15,12 @@ from docx.shared import Pt
 
 
 DEFAULT_WORKSHEET_STRUCTURE = """Every worksheet must structurally contain the following content, mapped to the JSON schema in Part 2:
-  1. Core Text: A short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, display it prominently (e.g., $$Formula$$).
-  2. Quick Questions: Exactly 4 questions that elicit a keyword defined in the paragraph. Then Exactly 4 binary-choice questions formatted strictly as "Does [Factor A] affect [Option X] or [Option Y]?" or "Is [Concept] an example of [Option X] or [Option Y]?". Answers must be directly extractable from the core text. Put an answer line after every quick question, use a "________" marker so students can write their answers.
+  1. Core Text: A short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, make it very clear with minimal wording. Place this core text inside a clearly separated bordered box in the Word document.
+     - Immediately underneath that border, add the exact instruction: "Underline or Highlight these Keywords:-"
+     - Then add a plain-text list of up to 8 keywords used in the core text. Keep the keywords as simple words or short phrases, separated by commas. Do NOT bold the keywords and do NOT wrap them in markdown, asterisks, or any special formatting.
+  2. Quick Questions: Exactly 4 questions that elicit a keyword defined in the paragraph. Then Exactly 4 binary-choice questions formatted strictly as "Does [Factor A] affect [Option X] or [Option Y]?[...]
   3. True or False: Exactly 8 simple statement verification questions.
-  4. Factor Summary Table: A comparison table with between 2 to 5 columns where students can classify 4 distinct items/factors from the text. Make about 60% of the cells empty so students can complete them, while keeping the table structure clear.
+  4. Factor Summary Table: A comparison table with between 2 to 5 columns where students can classify 4 distinct items/factors from the text. Make about 60% of the cells empty so students can complete[...]
   5. Fill in the Blanks: A short paragraph cloze activity (3-4 sentences) with a clean Word Bank listed directly under it.
   6. Application Problems: Exactly 6 simple contextual questions that push students to apply the content in straightforward ways.
   7. Extension: Exactly 3 higher tier type contextual application questions pushing students to apply knowledge to novel scenarios, evaluate safety/experimental designs, or explain "why".
@@ -37,17 +39,19 @@ Ability of the group: {ability}
 
 Always adhere to the following layout, tone, and structural constraints when designing the content:
 - Keep text to an absolute minimum. Use minimal instructions. Avoid dense walls of text. Use clean formatting to maximize scannability.
-- Adapt the vocabulary, sentence length, and complexity to the specified year group and ability level. If the class is younger or lower-attaining, use simpler wording, shorter sentences, and more direct instructions. If the class is older or higher-attaining, you may use slightly more precise language.
+- Adapt the vocabulary, sentence length, and complexity to the specified year group and ability level. If the class is younger or lower-attaining, use simpler wording, shorter sentences, and more direct explanations.
 - Make the core text, every question, and every instruction suitable for the class age and ability level.
+- For the first section, create a visually separated bordered box for the core text. Underneath that border, add the exact instruction: "Underline or Highlight these Keywords:-"
+- Immediately after that instruction, include a plain-text list of up to 8 keywords taken directly from the core text. Use simple words or short phrases separated by commas. Do not use bold, markdown, asterisks, or any special formatting on the keywords. The keywords must not be enclosed in **bold** markers.
 - For the Application Problems and Extension sections, use the JSON type "long_question" for each question so they are visually separated with extra spacing in the Word document.
 - The final part of the JSON must be an answer key. It should be a numbered list of all the answers and should use the JSON type "answer_key".
-- If you want text to appear bold in the Word document, wrap that text in double asterisks, for example **important**. These markers must be interpreted as bold formatting when the text is injected into the document.
+- If you want text to appear bold in the Word document, wrap that text in double asterisks, for example **important**. These markers must be interpreted as bold formatting when the text is injected into the Word document.
 {worksheet_structure}
 
 ### PART 2: JSON SCHEMA & TECHNICAL CONSTRAINTS
 
 1. NO MARKDOWN WRAPPERS: Output raw JSON only. Do not wrap the output in ```json blocks. Do not include any conversational text before or after the JSON object.
-2. NO CUSTOM TYPES: You must ONLY use the types explicitly listed in the schema below. Do not use "list", "callout", "equation", "binary_choice", or "cloze". Map all text structures to these seven approved strings: "subheading", "paragraph", "table", "question", "long_question", "answer_key", or "image".
+2. NO CUSTOM TYPES: You must ONLY use the types explicitly listed in the schema below. Do not use "list", "callout", "equation", "binary_choice", or "cloze". Map all text structures to these seven app[...]
 3. CHEMICAL FORMULA RULES: You must format all chemical formulas and numerical subscripts using HTML <sub> tags.
    - Standard Molecular: H<sub>2</sub>O, CO<sub>2</sub>
    - Polyatomic Ions/Parentheses: Ca(NO<sub>3</sub>)<sub>2</sub>
@@ -401,7 +405,8 @@ def main():
 
     with st.expander("Template guidance", expanded=False):
         st.write(
-            "The template is a Word document that contains the basic structure and formatting for your worksheet. If you want to modify what the worksheet looks like then you can edit the template given below, you can change the font, add logos, add a header or footer. The template uses 'Styles'; the styles used are listed below. The template should include placeholders for the worksheet title and content, which will be replaced with the generated content from Gemini."
+            "The template is a Word document that contains the basic structure and formatting for your worksheet. If you want to modify what the worksheet looks like then you can edit the template given in this project. The app uses placeholders in the template such as [[WORKSHEET_TITLE]] and [[CONTENT_HERE]] to insert the generated content. "
+            "You can also change the styling of sections by editing the document styles in Word."
         )
         st.table(
             {
@@ -474,3 +479,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
