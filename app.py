@@ -16,7 +16,7 @@ from docx.shared import Pt
 
 
 DEFAULT_WORKSHEET_STRUCTURE = """Every worksheet must structurally contain the following content, mapped to the JSON schema in Part 2:
-  1. Core Text: A short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, make it very clear with minimal wording. Place this core text inside the bordered box placeholder [[CORE_TEXT_BOX]] in the template.
+  1. Core Text: A short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, [...]
      - Immediately underneath that border, add the exact instruction: "Underline or Highlight these Keywords:-"
      - Then add a comma-separated list of up to 8 keywords used in the core text, each keyword wrapped in double asterisks, for example **photosynthesis**, **glucose**, **energy**.
   2. Quick Questions: Exactly 4 questions that elicit a keyword defined in the paragraph. Then Exactly 4 binary-choice questions formatted strictly as "Does [Factor A] affect [Option X] or [Option Y]?[...]
@@ -40,20 +40,20 @@ Ability of the group: {ability}
 
 Always adhere to the following layout, tone, and structural constraints when designing the content:
 - Keep text to an absolute minimum. Use minimal instructions. Avoid dense walls of text. Use clean formatting to maximize scannability.
-- Adapt the vocabulary, sentence length, and complexity to the specified year group and ability level. If the class is younger or lower-attaining, use simpler wording, shorter sentences, and more direct explanations.
+- Adapt the vocabulary, sentence length, and complexity to the specified year group and ability level. If the class is younger or lower-attaining, use simpler wording, shorter sentences, and more dire[...] 
 - Make the core text, every question, and every instruction suitable for the class age and ability level.
 - Place the core text inside the bordered box placeholder in the Word template by making the first paragraph block the core explanation for the topic.
 - Immediately after the core text box, add the exact instruction: "Underline or Highlight these Keywords:-"
-- Then add a comma-separated list of up to 8 keywords from the core text, each keyword wrapped in bold markers like **photosynthesis**, **glucose**, **energy**. Only the keywords should be bold, not the instruction text.
+- Then add a comma-separated list of up to 8 keywords from the core text, each keyword wrapped in bold markers like **photosynthesis**, **glucose**, **energy**. Only the keywords should be bold, not t[...] 
 - For the Application Problems and Extension sections, use the JSON type "long_question" for each question so they are visually separated with extra spacing in the Word document.
-- The final part of the JSON must be an answer key. It should be a numbered list of all the answers and should use the JSON type "answer_key".
-- If you want text to appear bold in the Word document, wrap that text in double asterisks, for example **important**. These markers must be interpreted as bold formatting when the text is injected into the Word document.
+- The final part of the JSON must be a answer key. It should be a numbered list of all the answers and should use the JSON type "answer_key".
+- If you want text to appear bold in the Word document, wrap that text in double asterisks, for example **important**. These markers must be interpreted as bold formatting when the text is injected in[...] 
 {worksheet_structure}
 
 ### PART 2: JSON SCHEMA & TECHNICAL CONSTRAINTS
 
 1. NO MARKDOWN WRAPPERS: Output raw JSON only. Do not wrap the output in ```json blocks. Do not include any conversational text before or after the JSON object.
-2. NO CUSTOM TYPES: You must ONLY use the types explicitly listed in the schema below. Do not use "list", "callout", "equation", "binary_choice", or "cloze". Map all text structures to these seven app[...]
+2. NO CUSTOM TYPES: You must ONLY use the types explicitly listed in the schema below. Do not use "list", "callout", "equation", "binary_choice", or "cloze". Map all text structures to these seven app[...] 
 3. CHEMICAL FORMULA RULES: You must format all chemical formulas and numerical subscripts using HTML <sub> tags.
    - Standard Molecular: H<sub>2</sub>O, CO<sub>2</sub>
    - Polyatomic Ions/Parentheses: Ca(NO<sub>3</sub>)<sub>2</sub>
@@ -80,7 +80,7 @@ Always adhere to the following layout, tone, and structural constraints when des
 - For the Application Problems and Extension sections, map each question to a "long_question" type object so they are separated with extra spacing in the Word document.
 - Put the answer key as the final block in the JSON, using the type "answer_key" and a numbered list of answers in the content string.
 
-Immediately output the complete raw JSON object for the topic: {topic}. Do not include conversational filler before or after the JSON."""
+Immediately output the complete raw JSON object for the topic: {topic}. Do not include conversational filler before or after the JSON object."""
 
 
 # --- 1. CHEMISTRY REGEX FUNCTION ---
@@ -278,11 +278,33 @@ def is_answer_key_heading(content):
     return re.sub(r'\s+', ' ', str(content or "")).strip().lower() == "answer key"
 
 
+def split_core_and_content_blocks(blocks):
+    content_blocks = [dict(block) for block in (blocks or [])]
+    core_text = ""
+    main_block_idx = None
+
+    for idx, block in enumerate(content_blocks):
+        if block.get("type") != "paragraph":
+            continue
+
+        content = str(block.get("content", "")).strip()
+        if content and "Underline or Highlight these Keywords:-" not in content:
+            core_text = content
+            main_block_idx = idx
+            break
+
+    if main_block_idx is not None:
+        content_blocks.pop(main_block_idx)
+
+    return core_text or "Core content to be added here.", content_blocks
+
+
 def generate_worksheet(json_data, template_path):
     template = Path(template_path)
     doc = Document(template) if template.exists() else Document()
     title = json_data.get("worksheet_title", "Science Worksheet")
     blocks = json_data.get("document_blocks", [])
+    core_text, remaining_blocks = split_core_and_content_blocks(blocks)
 
     for p in doc.paragraphs:
         if "[[WORKSHEET_TITLE]]" in p.text:
@@ -290,18 +312,6 @@ def generate_worksheet(json_data, template_path):
             append_science_text(p, title)
 
         elif "[[CORE_TEXT_BOX]]" in p.text:
-            core_text = ""
-            main_block_idx = None
-            for idx, block in enumerate(blocks):
-                if block.get("type") == "paragraph":
-                    content = str(block.get("content", "")).strip()
-                    if content and "Underline or Highlight these Keywords:-" not in content:
-                        core_text = content
-                        main_block_idx = idx
-                        break
-            if not core_text:
-                core_text = "Core content to be added here."
-
             table = doc.add_table(rows=1, cols=1)
             table.alignment = 1
             cell = table.cell(0, 0)
@@ -322,13 +332,10 @@ def generate_worksheet(json_data, template_path):
             keyword_p.style = 'Normal'
             append_science_text(keyword_p, keyword_text)
 
-            if main_block_idx is not None:
-                blocks.pop(main_block_idx)
-
             p._element.getparent().remove(p._element)
 
         elif "[[CONTENT_HERE]]" in p.text:
-            for block in blocks:
+            for block in remaining_blocks:
                 b_type = block.get("type", "unknown")
 
                 if b_type == "subheading":
@@ -487,8 +494,7 @@ def main():
 
     with st.expander("Template guidance", expanded=False):
         st.write(
-            "The template is a Word document that contains the basic structure and formatting for your worksheet. If you want to modify what the worksheet looks like then you can edit the template given in this project. The app uses placeholders in the template such as [[WORKSHEET_TITLE]] and [[CONTENT_HERE]] to insert the generated content. "
-            "You can also change the styling of sections by editing the document styles in Word."
+            "The template is a Word document that contains the basic structure and formatting for your worksheet. If you want to modify what the worksheet looks like then you can edit the template given here. You can also change the styling of sections by editing the document styles in Word."
         )
         st.table(
             {
@@ -561,3 +567,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
