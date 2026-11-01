@@ -11,13 +11,14 @@ from uuid import uuid4
 import streamlit as st
 import streamlit.components.v1 as components
 from docx import Document
+from docx.oxml import OxmlElement
 from docx.shared import Pt
 
 
 DEFAULT_WORKSHEET_STRUCTURE = """Every worksheet must structurally contain the following content, mapped to the JSON schema in Part 2:
-  1. Core Text: A short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, make it very clear with minimal wording. Place this core text inside a clearly separated bordered box in the Word document.
+  1. Core Text: A short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, make it very clear with minimal wording. Place this core text inside the bordered box placeholder [[CORE_TEXT_BOX]] in the template.
      - Immediately underneath that border, add the exact instruction: "Underline or Highlight these Keywords:-"
-     - Then add a plain-text list of up to 8 keywords used in the core text. Keep the keywords as simple words or short phrases, separated by commas. Do NOT bold the keywords and do NOT wrap them in markdown, asterisks, or any special formatting.
+     - Then add a comma-separated list of up to 8 keywords used in the core text, each keyword wrapped in double asterisks, for example **photosynthesis**, **glucose**, **energy**.
   2. Quick Questions: Exactly 4 questions that elicit a keyword defined in the paragraph. Then Exactly 4 binary-choice questions formatted strictly as "Does [Factor A] affect [Option X] or [Option Y]?[...]
   3. True or False: Exactly 8 simple statement verification questions.
   4. Factor Summary Table: A comparison table with between 2 to 5 columns where students can classify 4 distinct items/factors from the text. Make about 60% of the cells empty so students can complete[...]
@@ -41,8 +42,9 @@ Always adhere to the following layout, tone, and structural constraints when des
 - Keep text to an absolute minimum. Use minimal instructions. Avoid dense walls of text. Use clean formatting to maximize scannability.
 - Adapt the vocabulary, sentence length, and complexity to the specified year group and ability level. If the class is younger or lower-attaining, use simpler wording, shorter sentences, and more direct explanations.
 - Make the core text, every question, and every instruction suitable for the class age and ability level.
-- For the first section, create a visually separated bordered box for the core text. Underneath that border, add the exact instruction: "Underline or Highlight these Keywords:-"
-- Immediately after that instruction, include a plain-text list of up to 8 keywords taken directly from the core text. Use simple words or short phrases separated by commas. Do not use bold, markdown, asterisks, or any special formatting on the keywords. The keywords must not be enclosed in **bold** markers.
+- Place the core text inside the bordered box placeholder in the Word template by making the first paragraph block the core explanation for the topic.
+- Immediately after the core text box, add the exact instruction: "Underline or Highlight these Keywords:-"
+- Then add a comma-separated list of up to 8 keywords from the core text, each keyword wrapped in bold markers like **photosynthesis**, **glucose**, **energy**. Only the keywords should be bold, not the instruction text.
 - For the Application Problems and Extension sections, use the JSON type "long_question" for each question so they are visually separated with extra spacing in the Word document.
 - The final part of the JSON must be an answer key. It should be a numbered list of all the answers and should use the JSON type "answer_key".
 - If you want text to appear bold in the Word document, wrap that text in double asterisks, for example **important**. These markers must be interpreted as bold formatting when the text is injected into the Word document.
@@ -121,6 +123,50 @@ def clean_question_text(raw_text):
 
 def render_section_label(text):
     st.markdown(f"<strong>{text}</strong>", unsafe_allow_html=True)
+
+
+def set_cell_border(cell, size_pt=2.25, color="000000"):
+    tc = cell._tc
+    tc_pr = tc.get_or_add_tcPr()
+    border = OxmlElement("w:tcBorders")
+    for side in ("top", "left", "bottom", "right"):
+        side_el = OxmlElement(f"w:{side}")
+        side_el.set("w:val", "single")
+        side_el.set("w:sz", str(int(size_pt * 8)))
+        side_el.set("w:space", "0")
+        side_el.set("w:color", color)
+        border.append(side_el)
+    tc_pr.append(border)
+
+
+def extract_keywords_from_text(text, limit=8):
+    cleaned = re.sub(r"<sub>.*?</sub>", " ", str(text or ""))
+    cleaned = re.sub(r"\*\*(.+?)\*\*", r"\1", cleaned)
+    cleaned = re.sub(r"[^A-Za-z0-9\s/\-]", " ", cleaned)
+    words = [word for word in cleaned.lower().split() if len(word) > 2]
+
+    stop_words = {
+        "about", "after", "again", "against", "also", "always", "among", "around", "because",
+        "before", "between", "could", "does", "each", "every", "from", "into", "just",
+        "more", "most", "other", "over", "should", "some", "such", "that", "their",
+        "there", "these", "they", "this", "those", "through", "under", "very", "were",
+        "what", "when", "where", "which", "while", "with", "would", "your", "have",
+        "been", "then", "than", "them", "the", "and", "for", "not", "but", "you", "yourself",
+        "ours", "ourselves", "hers", "herself", "himself", "itself", "ourselves", "cannot",
+        "will", "made", "take", "using", "used", "main", "idea", "topic", "word"
+    }
+
+    unique_words = []
+    seen = set()
+    for word in words:
+        if word in stop_words or word.isdigit():
+            continue
+        if word not in seen:
+            unique_words.append(word)
+            seen.add(word)
+        if len(unique_words) >= limit:
+            break
+    return unique_words
 
 
 # --- 2. GEMINI API HELPERS ---
@@ -239,12 +285,48 @@ def generate_worksheet(json_data, template_path):
     blocks = json_data.get("document_blocks", [])
 
     for p in doc.paragraphs:
-        # --- A. TITLE ---
         if "[[WORKSHEET_TITLE]]" in p.text:
             p.text = ""
             append_science_text(p, title)
 
-        # --- B. THE DYNAMIC CONTENT BLOCK ---
+        elif "[[CORE_TEXT_BOX]]" in p.text:
+            core_text = ""
+            main_block_idx = None
+            for idx, block in enumerate(blocks):
+                if block.get("type") == "paragraph":
+                    content = str(block.get("content", "")).strip()
+                    if content and "Underline or Highlight these Keywords:-" not in content:
+                        core_text = content
+                        main_block_idx = idx
+                        break
+            if not core_text:
+                core_text = "Core content to be added here."
+
+            table = doc.add_table(rows=1, cols=1)
+            table.alignment = 1
+            cell = table.cell(0, 0)
+            cell_paragraph = cell.paragraphs[0]
+            cell_paragraph.style = 'Normal'
+            append_science_text(cell_paragraph, core_text)
+            set_cell_border(cell)
+
+            p._p.addprevious(table._tbl)
+
+            instruction_p = p.insert_paragraph_before('')
+            instruction_p.style = 'Normal'
+            append_science_text(instruction_p, "Underline or Highlight these Keywords:-")
+
+            keywords = extract_keywords_from_text(core_text, limit=8)
+            keyword_text = ", ".join(f"**{keyword}**" for keyword in keywords) if keywords else "**keyword**"
+            keyword_p = p.insert_paragraph_before('')
+            keyword_p.style = 'Normal'
+            append_science_text(keyword_p, keyword_text)
+
+            if main_block_idx is not None:
+                blocks.pop(main_block_idx)
+
+            p._element.getparent().remove(p._element)
+
         elif "[[CONTENT_HERE]]" in p.text:
             for block in blocks:
                 b_type = block.get("type", "unknown")
@@ -479,4 +561,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
