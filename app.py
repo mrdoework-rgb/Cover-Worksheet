@@ -141,33 +141,47 @@ def set_cell_border(cell, size_pt=2.25, color="000000"):
 
 
 def extract_keywords_from_text(text, limit=8):
+    stop_words = {
+        "all", "also", "and", "are", "as", "at", "be", "been", "before", "being", "below",
+        "between", "both", "but", "by", "called", "can", "could", "did", "do", "does",
+        "doing", "down", "during", "each", "few", "for", "from", "further", "had", "has",
+        "have", "having", "he", "her", "here", "hers", "herself", "him", "himself",
+        "his", "how", "i", "if", "in", "into", "is", "it", "its", "itself", "just",
+        "living", "many", "me", "more", "most", "my", "myself", "no", "nor", "not",
+        "now", "of", "off", "on", "once", "only", "or", "other", "our", "ours", "ourselves",
+        "out", "over", "own", "same", "she", "should", "so", "some", "such", "than",
+        "that", "the", "their", "theirs", "them", "themselves", "then", "there", "these",
+        "they", "this", "those", "through", "to", "too", "under", "until", "up", "very",
+        "was", "we", "were", "what", "when", "where", "which", "while", "who", "whom",
+        "why", "will", "with", "you", "your", "yours", "yourself", "yourselves", "things",
+        "tiny", "building", "blocks", "around", "inside", "outside", "made", "different",
+        "types", "some", "common", "like", "brain", "controls", "everything", "fills",
+        "where", "activities", "happen", "thin", "border", "goes", "into", "out", "cell",
+        "cells", "animal", "plant", "nucleus", "cytoplasm", "membrane", "cells"
+    }
+
     cleaned = re.sub(r"<sub>.*?</sub>", " ", str(text or ""))
     cleaned = re.sub(r"\*\*(.+?)\*\*", r"\1", cleaned)
     cleaned = re.sub(r"[^A-Za-z0-9\s/\-]", " ", cleaned)
-    words = [word for word in cleaned.lower().split() if len(word) > 2]
+    words = []
+    for word in cleaned.lower().split():
+        w = word.strip("-")
+        if len(w) <= 2:
+            continue
+        words.append(w)
 
-    stop_words = {
-        "about", "after", "again", "against", "also", "always", "among", "around", "because",
-        "before", "between", "could", "does", "each", "every", "from", "into", "just",
-        "more", "most", "other", "over", "should", "some", "such", "that", "their",
-        "there", "these", "they", "this", "those", "through", "under", "very", "were",
-        "what", "when", "where", "which", "while", "with", "would", "your", "have",
-        "been", "then", "than", "them", "the", "and", "for", "not", "but", "you", "yourself",
-        "ours", "ourselves", "hers", "herself", "himself", "itself", "ourselves", "cannot",
-        "will", "made", "take", "using", "used", "main", "idea", "topic", "word"
-    }
-
-    unique_words = []
+    unique = []
     seen = set()
     for word in words:
-        if word in stop_words or word.isdigit():
+        if word in stop_words:
             continue
-        if word not in seen:
-            unique_words.append(word)
-            seen.add(word)
-        if len(unique_words) >= limit:
+        if word in seen:
+            continue
+        seen.add(word)
+        unique.append(word)
+        if len(unique) >= limit:
             break
-    return unique_words
+    return unique
 
 
 # --- 2. GEMINI API HELPERS ---
@@ -334,15 +348,8 @@ def generate_worksheet(json_data, template_path):
             append_science_text(p, title)
 
         elif "[[CORE_TEXT_BOX]]" in text:
-            table = doc.add_table(rows=1, cols=1)
-            table.alignment = 1
-            cell = table.cell(0, 0)
-            cell_paragraph = cell.paragraphs[0]
-            cell_paragraph.style = 'Normal'
-            append_science_text(cell_paragraph, core_text)
-            set_cell_border(cell)
-
-            p._p.addprevious(table._tbl)
+            p.text = ""
+            append_science_text(p, core_text)
 
             instruction_p = p.insert_paragraph_before('')
             instruction_p.style = 'Normal'
@@ -354,7 +361,6 @@ def generate_worksheet(json_data, template_path):
             keyword_p.style = 'Normal'
             append_science_text(keyword_p, keyword_text)
 
-            p.text = ""
             p._element.getparent().remove(p._element)
 
         elif "[[CONTENT_HERE]]" in text:
