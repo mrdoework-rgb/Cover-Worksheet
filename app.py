@@ -40,20 +40,20 @@ Ability of the group: {ability}
 
 Always adhere to the following layout, tone, and structural constraints when designing the content:
 - Keep text to an absolute minimum. Use minimal instructions. Avoid dense walls of text. Use clean formatting to maximize scannability.
-- Adapt the vocabulary, sentence length, and complexity to the specified year group and ability level. If the class is younger or lower-attaining, use simpler wording, shorter sentences, and more dire[...]
+- Adapt the vocabulary, sentence length, and complexity to the specified year group and ability level. If the class is younger or lower-attaining, use simpler wording, shorter sentences, and more dire[...] 
 - Make the core text, every question, and every instruction suitable for the class age and ability level.
 - Place the core text inside the bordered box placeholder in the Word template by making the first paragraph block the core explanation for the topic.
 - Immediately after the core text box, add the exact instruction: "Underline or Highlight these Keywords:-"
-- Then add a comma-separated list of up to 8 keywords from the core text, each keyword wrapped in bold markers like **photosynthesis**, **glucose**, **energy**. Only the keywords should be bold, not t[...]
+- Then add a comma-separated list of up to 8 keywords from the core text, each keyword wrapped in bold markers like **photosynthesis**, **glucose**, **energy**. Only the keywords should be bold, not t[...] 
 - For the Application Problems and Extension sections, use the JSON type "long_question" for each question so they are visually separated with extra spacing in the Word document.
-- The final part of the JSON must be an answer key. It should be a numbered list of all the answers and should use the JSON type "answer_key".
-- If you want text to appear bold in the Word document, wrap that text in double asterisks, for example **important**. These markers must be interpreted as bold formatting when the text is injected in[...]
+- The final part of the JSON must be a answer key. It should be a numbered list of all the answers and should use the JSON type "answer_key".
+- If you want text to appear bold in the Word document, wrap that text in double asterisks, for example **important**. These markers must be interpreted as bold formatting when the text is injected in[...] 
 {worksheet_structure}
 
 ### PART 2: JSON SCHEMA & TECHNICAL CONSTRAINTS
 
 1. NO MARKDOWN WRAPPERS: Output raw JSON only. Do not wrap the output in ```json blocks. Do not include any conversational text before or after the JSON object.
-2. NO CUSTOM TYPES: You must ONLY use the types explicitly listed in the schema below. Do not use "list", "callout", "equation", "binary_choice", or "cloze". Map all text structures to these seven app[...]
+2. NO CUSTOM TYPES: You must ONLY use the types explicitly listed in the schema below. Do not use "list", "callout", "equation", "binary_choice", or "cloze". Map all text structures to these seven app[...] 
 3. CHEMICAL FORMULA RULES: You must format all chemical formulas and numerical subscripts using HTML <sub> tags.
    - Standard Molecular: H<sub>2</sub>O, CO<sub>2</sub>
    - Polyatomic Ions/Parentheses: Ca(NO<sub>3</sub>)<sub>2</sub>
@@ -126,15 +126,16 @@ def render_section_label(text):
 
 
 def set_cell_border(cell, size_pt=2.25, color="000000"):
+    ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
     tc = cell._tc
     tc_pr = tc.get_or_add_tcPr()
     border = OxmlElement("w:tcBorders")
     for side in ("top", "left", "bottom", "right"):
         side_el = OxmlElement(f"w:{side}")
-        side_el.set("w:val", "single")
-        side_el.set("w:sz", str(int(size_pt * 8)))
-        side_el.set("w:space", "0")
-        side_el.set("w:color", color)
+        side_el.set(f"{ns}val", "single")
+        side_el.set(f"{ns}sz", str(int(size_pt * 8)))
+        side_el.set(f"{ns}space", "0")
+        side_el.set(f"{ns}color", color)
         border.append(side_el)
     tc_pr.append(border)
 
