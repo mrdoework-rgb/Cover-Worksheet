@@ -105,8 +105,8 @@ def build_gemini_response_schema():
 
 
 CHEMICAL_FORMULA_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9])(?P<coefficient>\\d*)"
-    r"(?P<formula>(?:[A-Z][a-z]?\\d*|\\([A-Z][a-z]?\\d*(?:[A-Z][a-z]?\\d*)*\\)\\d*)+)"
+    r"(?<![A-Za-z0-9])(?P<coefficient>\d*)"
+    r"(?P<formula>(?:[A-Z][a-z]?\d*|\([A-Z][a-z]?\d*(?:[A-Z][a-z]?\d*)*\)\d*)+)"
     r"(?![A-Za-z0-9])"
 )
 
@@ -117,7 +117,7 @@ def add_chemical_formula_subscripts(raw_text):
         formula = match.group("formula")
         if "<sub>" in formula:
             return match.group(0)
-        formula = re.sub(r"(?<=[A-Za-z)])(\\d+)", r"<sub>\\1</sub>", formula)
+        formula = re.sub(r"(?<=[A-Za-z)])(\d+)", r"<sub>\1</sub>", formula)
         return f"{match.group('coefficient')}{formula}"
 
     return CHEMICAL_FORMULA_PATTERN.sub(format_formula, str(raw_text or ""))
@@ -128,7 +128,7 @@ def append_science_text(paragraph, raw_text):
     if raw_text is None:
         return
     text = str(raw_text)
-    pattern = re.compile(r'(\\*\\*.+?\\*\\*|<sub>.+?</sub>)')
+    pattern = re.compile(r'(\*\*.+?\*\*|<sub>.+?</sub>)')
     last_end = 0
     for match in pattern.finditer(text):
         if match.start() > last_end:
@@ -147,11 +147,10 @@ def append_science_text(paragraph, raw_text):
 
 def append_core_text(paragraph, raw_text):
     """Render core text as separate Word paragraphs, preserving chemical subscripts."""
-    plain_text = re.sub(r"\\*\\*(.*?)\\*\\*", r"\\1", str(raw_text or ""))
-    paragraphs = [part.strip() for part in re.split(r"\\n\\s*\\n", plain_text.strip()) if part.strip()]
+    plain_text = re.sub(r"\*\*(.*?)\*\*", r"\1", str(raw_text or ""))
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", plain_text.strip()) if part.strip()]
     if not paragraphs:
         paragraphs = [""]
-
     for index, content in enumerate(paragraphs):
         if index == 0:
             target = paragraph
@@ -167,7 +166,7 @@ def append_core_text(paragraph, raw_text):
 def clean_question_text(raw_text):
     if not raw_text:
         return ""
-    return re.sub(r'^\\s*(?:\\d+[.)]\\s*|[A-Za-z][.)]\\s*)+', '', str(raw_text)).strip()
+    return re.sub(r'^\s*(?:\d+[.)]\s*|[A-Za-z][.)]\s*)+', '', str(raw_text)).strip()
 
 
 def render_section_label(text):
@@ -222,7 +221,7 @@ def clean_json_text(raw_text):
     text = raw_text.strip()
     if text.startswith("```"):
         lines = text.splitlines()
-        text = "\\n".join(lines[1:-1]) if len(lines) >= 2 else text.strip("`")
+        text = "\n".join(lines[1:-1]) if len(lines) >= 2 else text.strip("`")
     return text.strip()
 
 
@@ -252,12 +251,14 @@ def validate_worksheet_json(data):
         raise ValueError("Gemini JSON core_keywords must not contain duplicate keywords.")
     if not isinstance(data["document_blocks"], list):
         raise ValueError("Gemini JSON document_blocks must be an array.")
+    keyword_list = ", ".join(word.strip() for word in keywords)
+    normalize_keyword_text = lambda value: re.sub(r"\s+", " ", re.sub(r"\*\*(.*?)\*\*", r"\1", value)).strip().casefold()
     for index, block in enumerate(data["document_blocks"]):
         if not isinstance(block, dict) or block.get("type") not in ALLOWED_BLOCK_TYPES:
             raise ValueError(f"Gemini JSON document_blocks item {index + 1} has an invalid type.")
         if block["type"] == "paragraph":
             content = str(block.get("content", "")).strip()
-            if content == KEYWORD_INSTRUCTION or re.fullmatch(r'(?:\\*\\*[^*]+\\*\\*(?:\\s*,\\s*)?)+', content):
+            if content == KEYWORD_INSTRUCTION or normalize_keyword_text(content) == normalize_keyword_text(keyword_list):
                 raise ValueError("Gemini JSON must not put the keyword instruction/list in document_blocks.")
     return data
 
@@ -296,7 +297,7 @@ def call_gemini_api(topic, year_group=None, ability=None, api_key=None, workshee
 
 
 def is_answer_key_heading(content):
-    return re.sub(r'\\s+', ' ', str(content or "")).strip().lower() == "answer key"
+    return re.sub(r'\s+', ' ', str(content or "")).strip().lower() == "answer key"
 
 
 def iter_all_paragraphs(doc):
@@ -314,7 +315,7 @@ def iter_all_paragraphs(doc):
 
 
 def normalize_placeholder_text(value):
-    return (value or "").replace("\\u00a0", " ").strip()
+    return (value or "").replace("\u00a0", " ").strip()
 
 
 def insert_paragraph_after(doc, element, style="Normal"):
