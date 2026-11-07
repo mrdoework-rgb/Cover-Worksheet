@@ -14,6 +14,7 @@ from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
+from docx.text.paragraph import Paragraph
 
 
 DEFAULT_WORKSHEET_STRUCTURE = """Every worksheet must structurally contain the following content:
@@ -36,12 +37,12 @@ TARGET TOPIC
 Topic: {topic}
 Year Group: {year_group}
 Ability of the group: {ability}
-Requested core paragraph length: approximately {core_text_word_count} words. This is soft guidance: aim for 75% to 125% of the requested count ({core_text_min_words}-{core_text_max_words} words). Prioritize scientific accuracy and clear age-appropriate writing if a small deviation is necessary.
+Requested core explanation length: approximately {core_text_word_count} words in total. This is soft guidance: aim for 75% to 125% of the requested count ({core_text_min_words}-{core_text_max_words} words). Prioritize scientific accuracy and clear age-appropriate writing if a small deviation is necessary.
 
 PEDAGOGICAL CONSTRAINTS
 - Keep text minimal, clear, age-appropriate, and easy to scan.
-- Place the core explanation ONLY in the top-level `core_text` field. It must be one short paragraph or bulleted string. Do not copy it into `document_blocks`.
-- Aim for the requested core paragraph word count above, allowing the stated 25% range.
+- Place the core explanation ONLY in the top-level `core_text` field. It may be one paragraph, or divided into several concise paragraphs or bullet points when that makes the explanation clearer. Do not force everything into one paragraph or split it arbitrarily. Separate paragraphs with blank lines in the string. Do not copy the core explanation into `document_blocks`.
+- Treat the requested word count as the total for all paragraphs or bullet points in `core_text`, allowing the stated 25% range.
 - The `core_text` must be completely unbolded plain text. Do not include ** markers or other bold formatting in it. The application will render all core text in regular, non-bold type.
 - Return the core keywords ONLY in the top-level `core_keywords` field as a JSON array of 1 to 8 distinct strings taken from `core_text`. Do not include a keyword instruction or keyword list in `document_blocks`.
 - The application renders the core text in the bordered box and adds the instruction "Underline or Highlight these Keywords:-" and the formatted keyword list immediately below the box. Do not output that instruction yourself.
@@ -53,7 +54,7 @@ PEDAGOGICAL CONSTRAINTS
 STRICT JSON SCHEMA — FOLLOW EXACTLY
 The top-level JSON object must contain exactly these four keys, each exactly once:
 - `worksheet_title`: a string.
-- `core_text`: a string containing only the unbolded core explanation.
+- `core_text`: a string containing only the unbolded core explanation. It may contain multiple paragraphs or bullet points, separated by blank lines.
 - `core_keywords`: an array of 1 to 8 distinct plain-text keyword strings. No Markdown asterisks and no instruction text.
 - `document_blocks`: an array containing all worksheet content EXCEPT the core explanation, keyword instruction, and keyword list.
 
@@ -103,12 +104,31 @@ def build_gemini_response_schema():
     }
 
 
+CHEMICAL_FORMULA_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])(?P<coefficient>\\d*)"
+    r"(?P<formula>(?:[A-Z][a-z]?\\d*|\\([A-Z][a-z]?\\d*(?:[A-Z][a-z]?\\d*)*\\)\\d*)+)"
+    r"(?![A-Za-z0-9])"
+)
+
+
+def add_chemical_formula_subscripts(raw_text):
+    """Add subscript tags to numeric counts in chemical-formula-shaped text."""
+    def format_formula(match):
+        formula = match.group("formula")
+        if "<sub>" in formula:
+            return match.group(0)
+        formula = re.sub(r"(?<=[A-Za-z)])(\\d+)", r"<sub>\\1</sub>", formula)
+        return f"{match.group('coefficient')}{formula}"
+
+    return CHEMICAL_FORMULA_PATTERN.sub(format_formula, str(raw_text or ""))
+
+
 def append_science_text(paragraph, raw_text):
     """Render Markdown bold markers and chemical subscript tags as Word formatting."""
     if raw_text is None:
         return
     text = str(raw_text)
-    pattern = re.compile(r'(\*\*.+?\*\*|<sub>.+?</sub>)')
+    pattern = re.compile(r'(\\*\\*.+?\\*\\*|<sub>.+?</sub>)')
     last_end = 0
     for match in pattern.finditer(text):
         if match.start() > last_end:
@@ -126,15 +146,28 @@ def append_science_text(paragraph, raw_text):
 
 
 def append_core_text(paragraph, raw_text):
-    """Render core text without bold, even if Gemini accidentally returns ** markers."""
-    plain_text = re.sub(r"\*\*(.*?)\*\*", r"\1", str(raw_text or ""))
-    append_science_text(paragraph, plain_text)
+    """Render core text as separate Word paragraphs, preserving chemical subscripts."""
+    plain_text = re.sub(r"\\*\\*(.*?)\\*\\*", r"\\1", str(raw_text or ""))
+    paragraphs = [part.strip() for part in re.split(r"\\n\\s*\\n", plain_text.strip()) if part.strip()]
+    if not paragraphs:
+        paragraphs = [""]
+
+    for index, content in enumerate(paragraphs):
+        if index == 0:
+            target = paragraph
+        else:
+            new_element = OxmlElement("w:p")
+            target._p.addnext(new_element)
+            target = Paragraph(new_element, paragraph._parent)
+        append_science_text(target, add_chemical_formula_subscripts(content))
+        if index < len(paragraphs) - 1:
+            target.paragraph_format.space_after = Pt(6)
 
 
 def clean_question_text(raw_text):
     if not raw_text:
         return ""
-    return re.sub(r'^\s*(?:\d+[.)]\s*|[A-Za-z][.)]\s*)+', '', str(raw_text)).strip()
+    return re.sub(r'^\\s*(?:\\d+[.)]\\s*|[A-Za-z][.)]\\s*)+', '', str(raw_text)).strip()
 
 
 def render_section_label(text):
@@ -189,7 +222,7 @@ def clean_json_text(raw_text):
     text = raw_text.strip()
     if text.startswith("```"):
         lines = text.splitlines()
-        text = "\n".join(lines[1:-1]) if len(lines) >= 2 else text.strip("`")
+        text = "\\n".join(lines[1:-1]) if len(lines) >= 2 else text.strip("`")
     return text.strip()
 
 
@@ -224,7 +257,7 @@ def validate_worksheet_json(data):
             raise ValueError(f"Gemini JSON document_blocks item {index + 1} has an invalid type.")
         if block["type"] == "paragraph":
             content = str(block.get("content", "")).strip()
-            if content == KEYWORD_INSTRUCTION or re.fullmatch(r'(?:\*\*[^*]+\*\*(?:\s*,\s*)?)+', content):
+            if content == KEYWORD_INSTRUCTION or re.fullmatch(r'(?:\\*\\*[^*]+\\*\\*(?:\\s*,\\s*)?)+', content):
                 raise ValueError("Gemini JSON must not put the keyword instruction/list in document_blocks.")
     return data
 
@@ -263,7 +296,7 @@ def call_gemini_api(topic, year_group=None, ability=None, api_key=None, workshee
 
 
 def is_answer_key_heading(content):
-    return re.sub(r'\s+', ' ', str(content or "")).strip().lower() == "answer key"
+    return re.sub(r'\\s+', ' ', str(content or "")).strip().lower() == "answer key"
 
 
 def iter_all_paragraphs(doc):
@@ -281,7 +314,7 @@ def iter_all_paragraphs(doc):
 
 
 def normalize_placeholder_text(value):
-    return (value or "").replace("\u00a0", " ").strip()
+    return (value or "").replace("\\u00a0", " ").strip()
 
 
 def insert_paragraph_after(doc, element, style="Normal"):
@@ -321,7 +354,7 @@ def generate_worksheet(json_data, template_path):
             append_science_text(paragraph, title)
         elif "[[CORE_TEXT_BOX]]" in text and not core_box_rendered:
             paragraph.text = ""
-            # Never render markdown bold from core_text; HTML chemical subscripts remain supported.
+            # Render each core-text section as its own paragraph, with chemical formula counts subscripted.
             append_core_text(paragraph, core_text)
             insert_keywords_after_core_box(doc, paragraph, core_keywords)
             core_box_rendered = True
