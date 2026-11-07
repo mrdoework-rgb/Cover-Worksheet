@@ -28,7 +28,6 @@ DEFAULT_WORKSHEET_STRUCTURE = """Every worksheet must structurally contain the f
 
 KEYWORD_INSTRUCTION = "Underline or Highlight these Keywords:-"
 ALLOWED_BLOCK_TYPES = {"subheading", "paragraph", "question", "long_question", "answer_key", "image", "table"}
-
 PROMPT_TEMPLATE = """You are an expert GCSE Science worksheet creator specializing in clear resources for lower-attaining and SEND students.
 
 Create a minimalist, highly structured cover lesson worksheet for the requested topic. Output one raw JSON object only, with no Markdown fences or conversational text.
@@ -37,10 +36,12 @@ TARGET TOPIC
 Topic: {topic}
 Year Group: {year_group}
 Ability of the group: {ability}
+Requested core paragraph length: approximately {core_text_word_count} words. This is soft guidance: aim for 75% to 125% of the requested count ({core_text_min_words}-{core_text_max_words} words). Prioritize scientific accuracy and clear age-appropriate writing if a small deviation is necessary.
 
 PEDAGOGICAL CONSTRAINTS
 - Keep text minimal, clear, age-appropriate, and easy to scan.
 - Place the core explanation ONLY in the top-level `core_text` field. It must be one short paragraph or bulleted string. Do not copy it into `document_blocks`.
+- Aim for the requested core paragraph word count above, allowing the stated 25% range.
 - Return the core keywords ONLY in the top-level `core_keywords` field as a JSON array of 1 to 8 distinct strings taken from `core_text`. Do not include a keyword instruction or keyword list in `document_blocks`.
 - The application renders the core text in the bordered box and adds the instruction "Underline or Highlight these Keywords:-" and the formatted keyword list immediately below the box. Do not output that instruction yourself.
 - Do not use bold markers in `core_keywords`; each array item must be the plain keyword or phrase. Use **bold markers** only in other content when needed.
@@ -146,8 +147,19 @@ def set_cell_border(cell, size_pt=2.25, color="000000"):
     tc_pr.append(borders)
 
 
-def build_gemini_prompt(topic, year_group=None, ability=None, worksheet_structure=None):
-    return PROMPT_TEMPLATE.format(topic=topic.strip(), year_group=(year_group or "unknown").strip(), ability=(ability or "unknown").strip(), worksheet_structure=(worksheet_structure or DEFAULT_WORKSHEET_STRUCTURE).strip())
+def build_gemini_prompt(topic, year_group=None, ability=None, worksheet_structure=None, core_text_word_count=150):
+    requested_words = int(core_text_word_count)
+    min_words = round(requested_words * 0.75)
+    max_words = round(requested_words * 1.25)
+    return PROMPT_TEMPLATE.format(
+        topic=topic.strip(),
+        year_group=(year_group or "unknown").strip(),
+        ability=(ability or "unknown").strip(),
+        core_text_word_count=requested_words,
+        core_text_min_words=min_words,
+        core_text_max_words=max_words,
+        worksheet_structure=(worksheet_structure or DEFAULT_WORKSHEET_STRUCTURE).strip(),
+    )
 
 
 def get_gemini_api_key():
@@ -220,7 +232,7 @@ def parse_gemini_response(response_data):
     return validate_worksheet_json(parsed)
 
 
-def call_gemini_api(topic, year_group=None, ability=None, api_key=None, worksheet_structure=None):
+def call_gemini_api(topic, year_group=None, ability=None, api_key=None, worksheet_structure=None, core_text_word_count=150):
     if not topic or not topic.strip():
         raise ValueError("Please enter a topic first.")
     resolved_key = api_key or get_gemini_api_key()
@@ -229,7 +241,7 @@ def call_gemini_api(topic, year_group=None, ability=None, api_key=None, workshee
     model = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={resolved_key}"
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": build_gemini_prompt(topic, year_group, ability, worksheet_structure)}]}],
+        "contents": [{"role": "user", "parts": [{"text": build_gemini_prompt(topic, year_group, ability, worksheet_structure, core_text_word_count)}]}],
         "generationConfig": {"temperature": 0.1, "response_mime_type": "application/json", "response_schema": build_gemini_response_schema()},
     }
     request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
@@ -296,7 +308,6 @@ def generate_worksheet(json_data, template_path):
     core_keywords = json_data["core_keywords"]
     blocks = json_data["document_blocks"]
     core_box_rendered = False
-
     for paragraph in list(iter_all_paragraphs(doc)):
         text = normalize_placeholder_text(paragraph.text)
         if "[[WORKSHEET_TITLE]]" in text:
@@ -357,7 +368,6 @@ def generate_worksheet(json_data, template_path):
                                 append_science_text(cell_paragraph, str(cell_text))
                                 set_cell_border(cell)
             paragraph._element.getparent().remove(paragraph._element)
-
     if not core_box_rendered:
         st.warning("The Word template does not contain a [[CORE_TEXT_BOX]] placeholder; core text and keywords were not inserted.")
     buffer = io.BytesIO()
@@ -413,6 +423,14 @@ def main():
     render_section_label("What is the ability of the group?")
     ability_input = st.text_input("", placeholder="e.g. Lower-attaining / mixed / high ability", label_visibility="collapsed")
     worksheet_structure_input = st.text_area("Worksheet elements-You can modify the prompt here", value=DEFAULT_WORKSHEET_STRUCTURE, height=220, help="Edit the worksheet structure here before generating the worksheet.")
+    core_text_word_count = st.slider(
+        "Main paragraph target length (words)",
+        min_value=50,
+        max_value=500,
+        value=150,
+        step=10,
+        help="Soft guidance for Gemini. The paragraph should be within 25% of this target where practical.",
+    )
     api_key_input = resolve_gemini_api_key()
     uploaded_template = st.file_uploader("Optional: upload a Word template (.docx)", type=["docx"])
     show_gemini_json = st.checkbox("Show Gemini JSON response (debug)", value=False, help="When enabled, displays the parsed JSON returned by Gemini after generating a worksheet.")
@@ -435,7 +453,14 @@ def main():
         if topic_input.strip():
             try:
                 with st.spinner("Contacting Gemini to build the worksheet..."):
-                    json_data = call_gemini_api(topic_input, year_group=year_group_input, ability=ability_input, api_key=api_key_input or None, worksheet_structure=worksheet_structure_input)
+                    json_data = call_gemini_api(
+                        topic_input,
+                        year_group=year_group_input,
+                        ability=ability_input,
+                        api_key=api_key_input or None,
+                        worksheet_structure=worksheet_structure_input,
+                        core_text_word_count=core_text_word_count,
+                    )
                 if show_gemini_json:
                     st.subheader("Gemini JSON response")
                     st.json(json_data)
