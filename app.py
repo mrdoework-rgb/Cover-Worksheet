@@ -70,6 +70,37 @@ FORMATTING
 Return the complete raw JSON object for the topic. No additional text."""
 
 
+def build_gemini_response_schema():
+    return {
+        "type": "object",
+        "properties": {
+            "worksheet_title": {"type": "string"},
+            "core_text": {"type": "string"},
+            "core_keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 8,
+            },
+            "document_blocks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {"type": "string"},
+                        "content": {"type": ["string", "null"]},
+                        "table_data": {"type": ["object", "null"]},
+                    },
+                    "required": ["type"],
+                    "additionalProperties": True,
+                },
+            },
+        },
+        "required": ["worksheet_title", "core_text", "core_keywords", "document_blocks"],
+        "additionalProperties": False,
+    }
+
+
 def append_science_text(paragraph, raw_text):
     if raw_text is None:
         return
@@ -191,7 +222,14 @@ def validate_worksheet_json(data):
 
 def parse_gemini_response(response_data):
     try:
-        text = response_data["candidates"][0]["content"]["parts"][0]["text"]
+        candidate = response_data["candidates"][0]
+        part = candidate["content"]["parts"][0]
+        if isinstance(part, dict) and "text" in part:
+            text = part["text"]
+        elif isinstance(part, dict):
+            return validate_worksheet_json(part)
+        else:
+            raise ValueError("Gemini response part is not a JSON object or text.")
     except (KeyError, IndexError, TypeError) as exc:
         raise ValueError("Gemini response did not contain a usable content block.") from exc
     parsed = json.loads(clean_json_text(text), object_pairs_hook=reject_duplicate_json_keys)
@@ -206,9 +244,17 @@ def call_gemini_api(topic, year_group=None, ability=None, api_key=None, workshee
         raise ValueError("Enter a Gemini API key or set the GEMINI_API_KEY environment variable or Streamlit secret before generating a worksheet.")
     model = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={resolved_key}"
+    schema = build_gemini_response_schema()
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": build_gemini_prompt(topic, year_group, ability, worksheet_structure)}]}],
-        "generationConfig": {"temperature": 0.1},
+        "contents": [{
+            "role": "user",
+            "parts": [{"text": build_gemini_prompt(topic, year_group=year_group, ability=ability, worksheet_structure=worksheet_structure)}],
+        }],
+        "generationConfig": {
+            "temperature": 0.1,
+            "response_mime_type": "application/json",
+            "response_schema": schema,
+        },
     }
     request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
     try:
@@ -257,8 +303,6 @@ def insert_paragraph_after(doc, element, style="Normal"):
 
 
 def insert_keywords_after_core_box(doc, placeholder_paragraph, keywords):
-    # Put the instruction and keyword list after the containing table so they
-    # appear outside the bordered core-text box.
     ancestor = placeholder_paragraph._p.getparent()
     table_element = None
     while ancestor is not None:
@@ -339,7 +383,6 @@ def generate_worksheet(json_data, template_path):
                                 cell_paragraph = table.cell(row_index, column_index).paragraphs[0]
                                 cell_paragraph.text = ""
                                 append_science_text(cell_paragraph, str(cell_text))
-                # Answer-key blocks are included in the separate answer document only.
             paragraph._element.getparent().remove(paragraph._element)
 
     if not core_box_rendered:
