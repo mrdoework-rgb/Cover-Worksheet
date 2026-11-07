@@ -76,28 +76,29 @@ def build_gemini_response_schema():
         "properties": {
             "worksheet_title": {"type": "string"},
             "core_text": {"type": "string"},
-            "core_keywords": {
-                "type": "array",
-                "items": {"type": "string"},
-                "minItems": 1,
-                "maxItems": 8,
-            },
+            "core_keywords": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 8},
             "document_blocks": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "type": {"type": "string"},
-                        "content": {"type": ["string", "null"]},
-                        "table_data": {"type": ["object", "null"]},
+                        "type": {"type": "string", "enum": sorted(ALLOWED_BLOCK_TYPES)},
+                        "content": {"type": "string"},
+                        "table_data": {
+                            "type": "object",
+                            "properties": {
+                                "has_headers": {"type": "boolean"},
+                                "column_count": {"type": "integer"},
+                                "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+                            },
+                            "required": ["has_headers", "column_count", "rows"],
+                        },
                     },
                     "required": ["type"],
-                    "additionalProperties": True,
                 },
             },
         },
         "required": ["worksheet_title", "core_text", "core_keywords", "document_blocks"],
-        "additionalProperties": False,
     }
 
 
@@ -132,27 +133,26 @@ def render_section_label(text):
     st.markdown(f"<strong>{text}</strong>", unsafe_allow_html=True)
 
 
-def set_cell_border(cell, size_pt=2.25, color="000000"):
+def set_cell_border(cell, size_pt=0.75, color="B7C9D6"):
     ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
     tc_pr = cell._tc.get_or_add_tcPr()
-    borders = OxmlElement("w:tcBorders")
-    for side in ("top", "left", "bottom", "right"):
-        edge = OxmlElement(f"w:{side}")
+    borders = tc_pr.find(qn("w:tcBorders"))
+    if borders is None:
+        borders = OxmlElement("w:tcBorders")
+        tc_pr.append(borders)
+    for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        edge = borders.find(qn(f"w:{side}"))
+        if edge is None:
+            edge = OxmlElement(f"w:{side}")
+            borders.append(edge)
         edge.set(f"{ns}val", "single")
         edge.set(f"{ns}sz", str(int(size_pt * 8)))
         edge.set(f"{ns}space", "0")
         edge.set(f"{ns}color", color)
-        borders.append(edge)
-    tc_pr.append(borders)
 
 
 def build_gemini_prompt(topic, year_group=None, ability=None, worksheet_structure=None):
-    return PROMPT_TEMPLATE.format(
-        topic=topic.strip(),
-        year_group=(year_group or "unknown").strip(),
-        ability=(ability or "unknown").strip(),
-        worksheet_structure=(worksheet_structure or DEFAULT_WORKSHEET_STRUCTURE).strip(),
-    )
+    return PROMPT_TEMPLATE.format(topic=topic.strip(), year_group=(year_group or "unknown").strip(), ability=(ability or "unknown").strip(), worksheet_structure=(worksheet_structure or DEFAULT_WORKSHEET_STRUCTURE).strip())
 
 
 def get_gemini_api_key():
@@ -169,10 +169,7 @@ def resolve_gemini_api_key():
     st.markdown("Watch this video to learn how to get a free Gemini API key")
     components.iframe("https://www.youtube.com/embed/Uyn-P2nRvDA", height=158, width=280, scrolling=False)
     st.markdown("Create your Google Gemini API key at [https://aistudio.google.com/](https://aistudio.google.com/).")
-    return st.text_input(
-        "Gemini API key", type="password", placeholder="Enter your Gemini API key",
-        help="This value is used for the request when provided.",
-    )
+    return st.text_input("Gemini API key", type="password", placeholder="Enter your Gemini API key", help="This value is used for the request when provided.")
 
 
 def clean_json_text(raw_text):
@@ -205,8 +202,7 @@ def validate_worksheet_json(data):
         raise ValueError("Gemini JSON core_keywords must be an array containing 1 to 8 keywords.")
     if any(not isinstance(word, str) or not word.strip() or "**" in word for word in keywords):
         raise ValueError("Every core_keywords item must be a non-empty plain-text string without bold markers.")
-    normalized_keywords = [word.strip().casefold() for word in keywords]
-    if len(set(normalized_keywords)) != len(normalized_keywords):
+    if len({word.strip().casefold() for word in keywords}) != len(keywords):
         raise ValueError("Gemini JSON core_keywords must not contain duplicate keywords.")
     if not isinstance(data["document_blocks"], list):
         raise ValueError("Gemini JSON document_blocks must be an array.")
@@ -222,14 +218,7 @@ def validate_worksheet_json(data):
 
 def parse_gemini_response(response_data):
     try:
-        candidate = response_data["candidates"][0]
-        part = candidate["content"]["parts"][0]
-        if isinstance(part, dict) and "text" in part:
-            text = part["text"]
-        elif isinstance(part, dict):
-            return validate_worksheet_json(part)
-        else:
-            raise ValueError("Gemini response part is not a JSON object or text.")
+        text = response_data["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError, TypeError) as exc:
         raise ValueError("Gemini response did not contain a usable content block.") from exc
     parsed = json.loads(clean_json_text(text), object_pairs_hook=reject_duplicate_json_keys)
@@ -244,17 +233,9 @@ def call_gemini_api(topic, year_group=None, ability=None, api_key=None, workshee
         raise ValueError("Enter a Gemini API key or set the GEMINI_API_KEY environment variable or Streamlit secret before generating a worksheet.")
     model = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={resolved_key}"
-    schema = build_gemini_response_schema()
     payload = {
-        "contents": [{
-            "role": "user",
-            "parts": [{"text": build_gemini_prompt(topic, year_group=year_group, ability=ability, worksheet_structure=worksheet_structure)}],
-        }],
-        "generationConfig": {
-            "temperature": 0.1,
-            "response_mime_type": "application/json",
-            "response_schema": schema,
-        },
+        "contents": [{"role": "user", "parts": [{"text": build_gemini_prompt(topic, year_group, ability, worksheet_structure)}]}],
+        "generationConfig": {"temperature": 0.1, "response_mime_type": "application/json", "response_schema": build_gemini_response_schema()},
     }
     request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
     try:
@@ -291,11 +272,6 @@ def normalize_placeholder_text(value):
 
 
 def insert_paragraph_after(doc, element, style="Normal"):
-    """Create a document-owned paragraph, then position it after a body element.
-
-    Constructing Paragraph with element.getparent() is incorrect: that parent is
-    an lxml CT_Body object, which does not expose python-docx's required .part.
-    """
     paragraph = doc.add_paragraph(style=style)
     paragraph._p.getparent().remove(paragraph._p)
     element.addnext(paragraph._p)
@@ -378,16 +354,24 @@ def generate_worksheet(json_data, template_path):
                         except KeyError:
                             pass
                         paragraph._p.addprevious(table._tbl)
+                        has_headers = table_data.get("has_headers", False)
                         for row_index, row_data in enumerate(rows):
                             for column_index, cell_text in enumerate(row_data[:column_count]):
-                                cell_paragraph = table.cell(row_index, column_index).paragraphs[0]
+                                cell = table.cell(row_index, column_index)
+                                cell_paragraph = cell.paragraphs[0]
                                 cell_paragraph.text = ""
                                 append_science_text(cell_paragraph, str(cell_text))
+                                set_cell_border(cell)
+                                if has_headers and row_index == 0:
+                                    for run in cell_paragraph.runs:
+                                        run.font.bold = True
+                                    shading = OxmlElement("w:shd")
+                                    shading.set(qn("w:fill"), "D9EAF7")
+                                    cell._tc.get_or_add_tcPr().append(shading)
             paragraph._element.getparent().remove(paragraph._element)
 
     if not core_box_rendered:
         st.warning("The Word template does not contain a [[CORE_TEXT_BOX]] placeholder; core text and keywords were not inserted.")
-
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
@@ -433,26 +417,17 @@ def prepare_template_path(uploaded_template):
 def main():
     st.set_page_config(page_title="Science Worksheet Generator", page_icon="🔬")
     st.title("Worksheet Generator")
-    st.write(
-        "This app helps you create a ready-to-use worksheet in a few steps. Enter the topic, year group, and ability level; "
-        "Gemini creates the content, and the app turns it into a downloadable Word document."
-    )
+    st.write("This app helps you create a ready-to-use worksheet in a few steps. Enter the topic, year group, and ability level; Gemini creates the content, and the app turns it into a downloadable Word document.")
     render_section_label("What should this worksheet be about")
     topic_input = st.text_input("", placeholder="e.g. Photosynthesis: equation and factors affecting rate", label_visibility="collapsed")
     render_section_label("Year Group")
     year_group_input = st.text_input("", placeholder="e.g. Year 10", label_visibility="collapsed")
     render_section_label("What is the ability of the group?")
     ability_input = st.text_input("", placeholder="e.g. Lower-attaining / mixed / high ability", label_visibility="collapsed")
-    worksheet_structure_input = st.text_area(
-        "Worksheet elements-You can modify the prompt here", value=DEFAULT_WORKSHEET_STRUCTURE,
-        height=220, help="Edit the worksheet structure here before generating the worksheet.",
-    )
+    worksheet_structure_input = st.text_area("Worksheet elements-You can modify the prompt here", value=DEFAULT_WORKSHEET_STRUCTURE, height=220, help="Edit the worksheet structure here before generating the worksheet.")
     api_key_input = resolve_gemini_api_key()
     uploaded_template = st.file_uploader("Optional: upload a Word template (.docx)", type=["docx"])
-    show_gemini_json = st.checkbox(
-        "Show Gemini JSON response (debug)", value=False,
-        help="When enabled, displays the parsed JSON returned by Gemini after generating a worksheet.",
-    )
+    show_gemini_json = st.checkbox("Show Gemini JSON response (debug)", value=False, help="When enabled, displays the parsed JSON returned by Gemini after generating a worksheet.")
 
     for key, default in (("worksheet_bytes", None), ("worksheet_file_name", "worksheet.docx"), ("answer_bytes", None), ("answer_file_name", "answers.docx")):
         if key not in st.session_state:
@@ -472,10 +447,7 @@ def main():
         if topic_input.strip():
             try:
                 with st.spinner("Contacting Gemini to build the worksheet..."):
-                    json_data = call_gemini_api(
-                        topic_input, year_group=year_group_input, ability=ability_input,
-                        api_key=api_key_input or None, worksheet_structure=worksheet_structure_input,
-                    )
+                    json_data = call_gemini_api(topic_input, year_group=year_group_input, ability=ability_input, api_key=api_key_input or None, worksheet_structure=worksheet_structure_input)
                 if show_gemini_json:
                     st.subheader("Gemini JSON response")
                     st.json(json_data)
@@ -485,7 +457,8 @@ def main():
                 st.session_state["worksheet_bytes"] = word_buffer.getvalue()
                 st.session_state["worksheet_file_name"] = f"{doc_title}.docx"
                 st.session_state["answer_bytes"] = answer_buffer.getvalue()
-                st.session_state["answer_file_name"] = f"{answer_title} - Answers.docx"
+                # answer_title already includes the suffix; don't append it again.
+                st.session_state["answer_file_name"] = f"{answer_title}.docx"
                 st.success("Worksheet generated successfully!")
             except Exception as exc:
                 st.error(f"❌ An error occurred: {exc}")
