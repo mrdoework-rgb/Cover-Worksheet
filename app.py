@@ -19,13 +19,15 @@ DEFAULT_WORKSHEET_STRUCTURE = """Every worksheet must structurally contain the f
   1. Core Text: A short paragraph or bulleted list explaining the absolute core facts/concepts. Only essential keywords should serve as technical vocabulary. If a core formula or relationship exists, [...]
      - Immediately underneath that border, add the exact instruction: "Underline or Highlight these Keywords:-"
      - Then add a comma-separated list of up to 8 keywords used in the core text, each keyword wrapped in double asterisks, for example **photosynthesis**, **glucose**, **energy**.
-  2. Quick Questions: Exactly 4 questions that elicit a keyword defined in the paragraph. Then Exactly 4 binary-choice questions formatted strictly as "Does [Factor A] affect [Option X] or [Option Y]?[...]
+  2. Quick Questions: Exactly 4 questions that elicit a keyword defined in the paragraph. Then Exactly 4 binary-choice questions formatted strictly as "Does [Factor A] affect [Option X] or [Option Y]?[...]"
   3. True or False: Exactly 8 simple statement verification questions.
   4. Factor Summary Table: A comparison table with between 2 to 5 columns where students can classify 4 distinct items/factors from the text. Make about 60% of the cells empty so students can complete[...]
   5. Fill in the Blanks: A short paragraph cloze activity (3-4 sentences) with a clean Word Bank listed directly under it.
   6. Application Problems: Exactly 6 simple contextual questions that push students to apply the content in straightforward ways.
   7. Extension: Exactly 3 higher tier type contextual application questions pushing students to apply knowledge to novel scenarios, evaluate safety/experimental designs, or explain "why".
 """
+
+KEYWORD_INSTRUCTION = "Underline or Highlight these Keywords:-"
 
 PROMPT_TEMPLATE = """You are an expert GCSE Science resource creator specializing in evidence-based pedagogies for lower-attaining and SEND students, combined with a precise JSON parsing architecture.
 
@@ -40,20 +42,20 @@ Ability of the group: {ability}
 
 Always adhere to the following layout, tone, and structural constraints when designing the content:
 - Keep text to an absolute minimum. Use minimal instructions. Avoid dense walls of text. Use clean formatting to maximize scannability.
-- Adapt the vocabulary, sentence length, and complexity to the specified year group and ability level. If the class is younger or lower-attaining, use simpler wording, shorter sentences, and more dire[...] 
+- Adapt the vocabulary, sentence length, and complexity to the specified year group and ability level. If the class is younger or lower-attaining, use simpler wording, shorter sentences, and more direct language.
 - Make the core text, every question, and every instruction suitable for the class age and ability level.
 - Place the core text inside the bordered box placeholder in the Word template by making the first paragraph block the core explanation for the topic.
 - Immediately after the core text box, add the exact instruction: "Underline or Highlight these Keywords:-"
-- Then add a comma-separated list of up to 8 keywords from the core text, each keyword wrapped in bold markers like **photosynthesis**, **glucose**, **energy**. Only the keywords should be bold, not t[...] 
+- Then add a comma-separated list of up to 8 keywords from the core text, each keyword wrapped in bold markers like **photosynthesis**, **glucose**, **energy**. Only the keywords should be bold, not the whole sentence.
 - For the Application Problems and Extension sections, use the JSON type "long_question" for each question so they are visually separated with extra spacing in the Word document.
-- The final part of the JSON must be a answer key. It should be a numbered list of all the answers and should use the JSON type "answer_key".
-- If you want text to appear bold in the Word document, wrap that text in double asterisks, for example **important**. These markers must be interpreted as bold formatting when the text is injected in[...] 
+- The final part of the JSON must be an answer key. It should be a numbered list of all the answers and should use the JSON type "answer_key".
+- If you want text to appear bold in the Word document, wrap that text in double asterisks, for example **important**. These markers must be interpreted as bold formatting when the text is injected into the Word document.
 {worksheet_structure}
 
 ### PART 2: JSON SCHEMA & TECHNICAL CONSTRAINTS
 
 1. NO MARKDOWN WRAPPERS: Output raw JSON only. Do not wrap the output in ```json blocks. Do not include any conversational text before or after the JSON object.
-2. NO CUSTOM TYPES: You must ONLY use the types explicitly listed in the schema below. Do not use "list", "callout", "equation", "binary_choice", or "cloze". Map all text structures to these seven app[...] 
+2. NO CUSTOM TYPES: You must ONLY use the types explicitly listed in the schema below. Do not use "list", "callout", "equation", "binary_choice", or "cloze". Map all text structures to these seven application types.
 3. CHEMICAL FORMULA RULES: You must format all chemical formulas and numerical subscripts using HTML <sub> tags.
    - Standard Molecular: H<sub>2</sub>O, CO<sub>2</sub>
    - Polyatomic Ions/Parentheses: Ca(NO<sub>3</sub>)<sub>2</sub>
@@ -79,6 +81,8 @@ Always adhere to the following layout, tone, and structural constraints when des
 - For all other questions, map them directly to individual "question" type objects.
 - For the Application Problems and Extension sections, map each question to a "long_question" type object so they are separated with extra spacing in the Word document.
 - Put the answer key as the final block in the JSON, using the type "answer_key" and a numbered list of answers in the content string.
+
+Important: the first paragraph block must contain only the core explanation for the topic. Do not include the keyword instruction or the keyword list in that paragraph. Put the exact instruction line and the keyword list in separate paragraph blocks immediately after the core text block.
 
 Immediately output the complete raw JSON object for the topic: {topic}. Do not include conversational filler before or after the JSON object."""
 
@@ -140,6 +144,22 @@ def set_cell_border(cell, size_pt=2.25, color="000000"):
     tc_pr.append(border)
 
 
+def is_keyword_instruction_block(content):
+    text = str(content or "").strip()
+    return text == KEYWORD_INSTRUCTION or text.startswith(f"{KEYWORD_INSTRUCTION} ")
+
+
+def is_keyword_list_block(content):
+    text = str(content or "").strip()
+    if not text:
+        return False
+    if KEYWORD_INSTRUCTION in text:
+        text = text.split(KEYWORD_INSTRUCTION, 1)[1].strip()
+    if not text:
+        return False
+    return bool(re.fullmatch(r'(?:\*\*[^*]+\*\*(?:\s*,\s*)?)+', text))
+
+
 def extract_keywords_from_text(text, limit=8):
     stop_words = {
         "all", "also", "and", "are", "as", "at", "be", "been", "before", "being", "below",
@@ -157,7 +177,7 @@ def extract_keywords_from_text(text, limit=8):
         "tiny", "building", "blocks", "around", "inside", "outside", "made", "different",
         "types", "some", "common", "like", "brain", "controls", "everything", "fills",
         "where", "activities", "happen", "thin", "border", "goes", "into", "out", "cell",
-        "cells", "animal", "plant", "nucleus", "cytoplasm", "membrane", "cells"
+        "cells", "animal", "plant", "nucleus", "cytoplasm", "membrane"
     }
 
     cleaned = re.sub(r"<sub>.*?</sub>", " ", str(text or ""))
@@ -217,7 +237,7 @@ def resolve_gemini_api_key():
         scrolling=False,
     )
     st.markdown(
-        "Create your Google Gemini API Key (If it doesn't let you get an API key you might have to verify your age for you google account - it shows a link to do this) 👉 "
+        "Create your Google Gemini API Key (If it doesn't let you get an API key you might have to verify your age for your Google account - it shows a link to do this) 👉 "
         "[https://aistudio.google.com/](https://aistudio.google.com/)"
     )
     return st.text_input(
@@ -314,23 +334,39 @@ def normalize_placeholder_text(value):
 
 def split_core_and_content_blocks(blocks):
     content_blocks = [dict(block) for block in (blocks or [])]
+    cleaned_blocks = []
     core_text = ""
-    main_block_idx = None
 
-    for idx, block in enumerate(content_blocks):
+    for block in content_blocks:
         if block.get("type") != "paragraph":
+            cleaned_blocks.append(block)
             continue
 
         content = str(block.get("content", "")).strip()
-        if content and "Underline or Highlight these Keywords:-" not in content:
+        if not content:
+            continue
+
+        if KEYWORD_INSTRUCTION in content:
+            core_part, keyword_part = content.split(KEYWORD_INSTRUCTION, 1)
+            core_part = core_part.strip()
+            if core_part and not core_text:
+                core_text = core_part
+            if keyword_part.strip():
+                cleaned_blocks.append({"type": "paragraph", "content": KEYWORD_INSTRUCTION})
+                cleaned_blocks.append({"type": "paragraph", "content": keyword_part.strip()})
+            continue
+
+        if is_keyword_list_block(content):
+            continue
+
+        if not core_text:
             core_text = content
-            main_block_idx = idx
-            break
+        cleaned_blocks.append(block)
 
-    if main_block_idx is not None:
-        content_blocks.pop(main_block_idx)
+    if not core_text:
+        core_text = "Core content to be added here."
 
-    return core_text or "Core content to be added here.", content_blocks
+    return core_text, cleaned_blocks
 
 
 def generate_worksheet(json_data, template_path):
@@ -339,6 +375,12 @@ def generate_worksheet(json_data, template_path):
     title = json_data.get("worksheet_title", "Science Worksheet")
     blocks = json_data.get("document_blocks", [])
     core_text, remaining_blocks = split_core_and_content_blocks(blocks)
+
+    explicit_keyword_block = any(
+        block.get("type") == "paragraph" and (
+            is_keyword_instruction_block(block.get("content", "")) or is_keyword_list_block(block.get("content", ""))
+        ) for block in remaining_blocks
+    )
 
     for p in list(iter_all_paragraphs(doc)):
         text = normalize_placeholder_text(p.text)
@@ -351,15 +393,16 @@ def generate_worksheet(json_data, template_path):
             p.text = ""
             append_science_text(p, core_text)
 
-            instruction_p = p.insert_paragraph_before('')
-            instruction_p.style = 'Normal'
-            append_science_text(instruction_p, "Underline or Highlight these Keywords:-")
+            if not explicit_keyword_block:
+                instruction_p = p.insert_paragraph_before('')
+                instruction_p.style = 'Normal'
+                append_science_text(instruction_p, KEYWORD_INSTRUCTION)
 
-            keywords = extract_keywords_from_text(core_text, limit=8)
-            keyword_text = ", ".join(f"**{keyword}**" for keyword in keywords) if keywords else "**keyword**"
-            keyword_p = p.insert_paragraph_before('')
-            keyword_p.style = 'Normal'
-            append_science_text(keyword_p, keyword_text)
+                keywords = extract_keywords_from_text(core_text, limit=8)
+                keyword_text = ", ".join(f"**{keyword}**" for keyword in keywords) if keywords else "**keyword**"
+                keyword_p = p.insert_paragraph_before('')
+                keyword_p.style = 'Normal'
+                append_science_text(keyword_p, keyword_text)
 
             p._element.getparent().remove(p._element)
 
@@ -376,9 +419,16 @@ def generate_worksheet(json_data, template_path):
                     append_science_text(new_p, content)
 
                 elif b_type == "paragraph":
-                    new_p = p.insert_paragraph_before('')
-                    new_p.style = 'Normal'
-                    append_science_text(new_p, block.get("content", ""))
+                    content = block.get("content", "")
+                    if is_keyword_instruction_block(content) or is_keyword_list_block(content):
+                        # Keep these blocks in the main document flow only when they are explicitly present in the AI output.
+                        new_p = p.insert_paragraph_before('')
+                        new_p.style = 'Normal'
+                        append_science_text(new_p, content)
+                    else:
+                        new_p = p.insert_paragraph_before('')
+                        new_p.style = 'Normal'
+                        append_science_text(new_p, content)
 
                 elif b_type == "question":
                     new_p = p.insert_paragraph_before('')
@@ -568,6 +618,8 @@ def main():
                         api_key=api_key_input or None,
                         worksheet_structure=worksheet_structure_input,
                     )
+                if os.getenv("DEBUG_GEMINI_JSON") == "1":
+                    st.json(json_data)
                 template_path = prepare_template_path(uploaded_template)
                 word_buffer, doc_title = generate_worksheet(json_data, template_path)
                 answer_buffer, answer_title = generate_answer_key_document(json_data, template_path)
