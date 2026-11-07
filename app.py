@@ -87,32 +87,25 @@ Important: the first paragraph block must contain only the core explanation for 
 Immediately output the complete raw JSON object for the topic: {topic}. Do not include conversational filler before or after the JSON object."""
 
 
-# --- 1. CHEMISTRY REGEX FUNCTION ---
 def append_science_text(paragraph, raw_text):
     if raw_text is None:
         return
-
     text = str(raw_text)
     pattern = re.compile(r'(\*\*.+?\*\*|<sub>.+?</sub>)')
     last_end = 0
-
     for match in pattern.finditer(text):
         if match.start() > last_end:
             paragraph.add_run(text[last_end:match.start()])
-
         tag = match.group(1)
         if tag.startswith('**') and tag.endswith('**'):
             run = paragraph.add_run(tag[2:-2])
             run.font.bold = True
         elif tag.startswith('<sub>') and tag.endswith('</sub>'):
-            subscript_content = tag[5:-6]
-            run = paragraph.add_run(subscript_content)
+            run = paragraph.add_run(tag[5:-6])
             run.font.subscript = True
         else:
             paragraph.add_run(tag)
-
         last_end = match.end()
-
     if last_end < len(text):
         paragraph.add_run(text[last_end:])
 
@@ -120,9 +113,7 @@ def append_science_text(paragraph, raw_text):
 def clean_question_text(raw_text):
     if not raw_text:
         return ""
-
-    cleaned = re.sub(r'^\s*(?:\d+[.)]\s*|[A-Za-z][.)]\s*)+', '', str(raw_text))
-    return cleaned.strip()
+    return re.sub(r'^\s*(?:\d+[.)]\s*|[A-Za-z][.)]\s*)+', '', str(raw_text)).strip()
 
 
 def render_section_label(text):
@@ -131,8 +122,7 @@ def render_section_label(text):
 
 def set_cell_border(cell, size_pt=2.25, color="000000"):
     ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
-    tc = cell._tc
-    tc_pr = tc.get_or_add_tcPr()
+    tc_pr = cell._tc.get_or_add_tcPr()
     border = OxmlElement("w:tcBorders")
     for side in ("top", "left", "bottom", "right"):
         side_el = OxmlElement(f"w:{side}")
@@ -151,77 +141,36 @@ def is_keyword_instruction_block(content):
 
 def is_keyword_list_block(content):
     text = str(content or "").strip()
-    if not text:
-        return False
     if KEYWORD_INSTRUCTION in text:
         text = text.split(KEYWORD_INSTRUCTION, 1)[1].strip()
-    if not text:
-        return False
-    return bool(re.fullmatch(r'(?:\*\*[^*]+\*\*(?:\s*,\s*)?)+', text))
+    return bool(text and re.fullmatch(r'(?:\*\*[^*]+\*\*(?:\s*,\s*)?)+', text))
 
 
 def extract_keywords_from_text(text, limit=8):
-    stop_words = {
-        "all", "also", "and", "are", "as", "at", "be", "been", "before", "being", "below",
-        "between", "both", "but", "by", "called", "can", "could", "did", "do", "does",
-        "doing", "down", "during", "each", "few", "for", "from", "further", "had", "has",
-        "have", "having", "he", "her", "here", "hers", "herself", "him", "himself",
-        "his", "how", "i", "if", "in", "into", "is", "it", "its", "itself", "just",
-        "living", "many", "me", "more", "most", "my", "myself", "no", "nor", "not",
-        "now", "of", "off", "on", "once", "only", "or", "other", "our", "ours", "ourselves",
-        "out", "over", "own", "same", "she", "should", "so", "some", "such", "than",
-        "that", "the", "their", "theirs", "them", "themselves", "then", "there", "these",
-        "they", "this", "those", "through", "to", "too", "under", "until", "up", "very",
-        "was", "we", "were", "what", "when", "where", "which", "while", "who", "whom",
-        "why", "will", "with", "you", "your", "yours", "yourself", "yourselves", "things",
-        "tiny", "building", "blocks", "around", "inside", "outside", "made", "different",
-        "types", "some", "common", "like", "brain", "controls", "everything", "fills",
-        "where", "activities", "happen", "thin", "border", "goes", "into", "out", "cell",
-        "cells", "animal", "plant", "nucleus", "cytoplasm", "membrane"
-    }
-
+    stop_words = {"all", "also", "and", "are", "as", "at", "be", "been", "before", "being", "below", "between", "both", "but", "by", "called", "can", "could", "did", "do", "does", "doing", "down", "during", "each", "few", "for", "from", "further", "had", "has", "have", "having", "he", "her", "here", "hers", "herself", "him", "himself", "his", "how", "i", "if", "in", "into", "is", "it", "its", "itself", "just", "living", "many", "me", "more", "most", "my", "myself", "no", "nor", "not", "now", "of", "off", "on", "once", "only", "or", "other", "our", "ours", "ourselves", "out", "over", "own", "same", "she", "should", "so", "some", "such", "than", "that", "the", "their", "theirs", "them", "themselves", "then", "there", "these", "they", "this", "those", "through", "to", "too", "under", "until", "up", "very", "was", "we", "were", "what", "when", "where", "which", "while", "who", "whom", "why", "will", "with", "you", "your", "yours", "yourself", "yourselves", "things", "tiny", "building", "blocks", "around", "inside", "outside", "made", "different", "types", "common", "like", "brain", "controls", "everything", "fills", "activities", "happen", "thin", "border", "goes", "cell", "cells", "animal", "plant", "nucleus", "cytoplasm", "membrane"}
     cleaned = re.sub(r"<sub>.*?</sub>", " ", str(text or ""))
     cleaned = re.sub(r"\*\*(.+?)\*\*", r"\1", cleaned)
     cleaned = re.sub(r"[^A-Za-z0-9\s/\-]", " ", cleaned)
-    words = []
-    for word in cleaned.lower().split():
-        w = word.strip("-")
-        if len(w) <= 2:
-            continue
-        words.append(w)
-
+    words = [word.strip("-") for word in cleaned.lower().split() if len(word.strip("-")) > 2]
     unique = []
     seen = set()
     for word in words:
-        if word in stop_words:
-            continue
-        if word in seen:
-            continue
-        seen.add(word)
-        unique.append(word)
-        if len(unique) >= limit:
-            break
+        if word not in stop_words and word not in seen:
+            seen.add(word)
+            unique.append(word)
+            if len(unique) >= limit:
+                break
     return unique
 
 
-# --- 2. GEMINI API HELPERS ---
 def build_gemini_prompt(topic, year_group=None, ability=None, worksheet_structure=None):
-    year_group_text = (year_group or "unknown").strip()
-    ability_text = (ability or "unknown").strip()
-    structure_text = (worksheet_structure or DEFAULT_WORKSHEET_STRUCTURE).strip()
-    return PROMPT_TEMPLATE.format(
-        topic=topic.strip(),
-        year_group=year_group_text,
-        ability=ability_text,
-        worksheet_structure=structure_text,
-    )
+    return PROMPT_TEMPLATE.format(topic=topic.strip(), year_group=(year_group or "unknown").strip(), ability=(ability or "unknown").strip(), worksheet_structure=(worksheet_structure or DEFAULT_WORKSHEET_STRUCTURE).strip())
 
 
 def get_gemini_api_key():
     api_key = os.getenv("GEMINI_API_KEY")
     if api_key:
         return api_key
-
     try:
         return st.secrets["GEMINI_API_KEY"]
     except Exception:
@@ -230,32 +179,16 @@ def get_gemini_api_key():
 
 def resolve_gemini_api_key():
     st.markdown("Watch this video to learn how to get a Free Gemini API key")
-    components.iframe(
-        "https://www.youtube.com/embed/Uyn-P2nRvDA",
-        height=158,
-        width=280,
-        scrolling=False,
-    )
-    st.markdown(
-        "Create your Google Gemini API Key (If it doesn't let you get an API key you might have to verify your age for your Google account - it shows a link to do this) 👉 "
-        "[https://aistudio.google.com/](https://aistudio.google.com/)"
-    )
-    return st.text_input(
-        "Gemini API key",
-        type="password",
-        placeholder="Enter your Gemini API key",
-        help="This value is used for the request when provided.",
-    )
+    components.iframe("https://www.youtube.com/embed/Uyn-P2nRvDA", height=158, width=280, scrolling=False)
+    st.markdown("Create your Google Gemini API Key (If it doesn't let you get an API key you might have to verify your age for your Google account - it shows a link to do this) 👉 [https://aistudio.google.com/](https://aistudio.google.com/)")
+    return st.text_input("Gemini API key", type="password", placeholder="Enter your Gemini API key", help="This value is used for the request when provided.")
 
 
 def clean_json_text(raw_text):
     text = raw_text.strip()
     if text.startswith("```"):
         lines = text.splitlines()
-        if len(lines) >= 2:
-            text = "\n".join(lines[1:-1])
-        else:
-            text = text.strip("`")
+        text = "\n".join(lines[1:-1]) if len(lines) >= 2 else text.strip("`")
     return text.strip()
 
 
@@ -264,38 +197,19 @@ def parse_gemini_response(response_data):
         text = response_data["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError, TypeError) as exc:
         raise ValueError("Gemini response did not contain a usable content block.") from exc
-
-    cleaned_text = clean_json_text(text)
-    return json.loads(cleaned_text)
+    return json.loads(clean_json_text(text))
 
 
 def call_gemini_api(topic, year_group=None, ability=None, api_key=None, worksheet_structure=None):
     if not topic or not topic.strip():
         raise ValueError("Please enter a topic first.")
-
     resolved_key = api_key or get_gemini_api_key()
     if not resolved_key:
         raise ValueError("Enter a Gemini API key or set the GEMINI_API_KEY environment variable or Streamlit secret before generating a worksheet.")
-
     model = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={resolved_key}"
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": build_gemini_prompt(topic, year_group=year_group, ability=ability, worksheet_structure=worksheet_structure)}],
-            }
-        ],
-        "generationConfig": {"temperature": 0.1},
-    }
-
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
+    payload = {"contents": [{"role": "user", "parts": [{"text": build_gemini_prompt(topic, year_group, ability, worksheet_structure)}]}], "generationConfig": {"temperature": 0.1}}
+    request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             response_data = json.loads(response.read().decode("utf-8"))
@@ -304,11 +218,9 @@ def call_gemini_api(topic, year_group=None, ability=None, api_key=None, workshee
         raise RuntimeError(f"Gemini API request failed ({exc.code}): {detail}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Unable to reach Gemini API: {exc}") from exc
-
     return parse_gemini_response(response_data)
 
 
-# --- 3. V3 COMPONENT DOCUMENT COMPILER ---
 def is_answer_key_heading(content):
     return re.sub(r'\s+', ' ', str(content or "")).strip().lower() == "answer key"
 
@@ -318,7 +230,6 @@ def iter_all_paragraphs(doc):
     for p in doc.paragraphs:
         seen.add(id(p))
         yield p
-
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -336,80 +247,54 @@ def split_core_and_content_blocks(blocks):
     content_blocks = [dict(block) for block in (blocks or [])]
     cleaned_blocks = []
     core_text = ""
-
     for block in content_blocks:
         if block.get("type") != "paragraph":
             cleaned_blocks.append(block)
             continue
-
         content = str(block.get("content", "")).strip()
         if not content:
             continue
-
         if KEYWORD_INSTRUCTION in content:
             core_part, keyword_part = content.split(KEYWORD_INSTRUCTION, 1)
-            core_part = core_part.strip()
-            if core_part and not core_text:
-                core_text = core_part
+            if core_part.strip() and not core_text:
+                core_text = core_part.strip()
             if keyword_part.strip():
-                cleaned_blocks.append({"type": "paragraph", "content": KEYWORD_INSTRUCTION})
-                cleaned_blocks.append({"type": "paragraph", "content": keyword_part.strip()})
+                cleaned_blocks.extend([{"type": "paragraph", "content": KEYWORD_INSTRUCTION}, {"type": "paragraph", "content": keyword_part.strip()}])
             continue
-
         if is_keyword_list_block(content):
             continue
-
         if not core_text:
             core_text = content
         cleaned_blocks.append(block)
-
-    if not core_text:
-        core_text = "Core content to be added here."
-
-    return core_text, cleaned_blocks
+    return core_text or "Core content to be added here.", cleaned_blocks
 
 
 def generate_worksheet(json_data, template_path):
     template = Path(template_path)
     doc = Document(template) if template.exists() else Document()
     title = json_data.get("worksheet_title", "Science Worksheet")
-    blocks = json_data.get("document_blocks", [])
-    core_text, remaining_blocks = split_core_and_content_blocks(blocks)
-
-    explicit_keyword_block = any(
-        block.get("type") == "paragraph" and (
-            is_keyword_instruction_block(block.get("content", "")) or is_keyword_list_block(block.get("content", ""))
-        ) for block in remaining_blocks
-    )
-
+    core_text, remaining_blocks = split_core_and_content_blocks(json_data.get("document_blocks", []))
+    explicit_keyword_block = any(block.get("type") == "paragraph" and (is_keyword_instruction_block(block.get("content", "")) or is_keyword_list_block(block.get("content", ""))) for block in remaining_blocks)
     for p in list(iter_all_paragraphs(doc)):
         text = normalize_placeholder_text(p.text)
-
         if "[[WORKSHEET_TITLE]]" in text:
             p.text = ""
             append_science_text(p, title)
-
         elif "[[CORE_TEXT_BOX]]" in text:
             p.text = ""
             append_science_text(p, core_text)
-
             if not explicit_keyword_block:
                 instruction_p = p.insert_paragraph_before('')
                 instruction_p.style = 'Normal'
                 append_science_text(instruction_p, KEYWORD_INSTRUCTION)
-
                 keywords = extract_keywords_from_text(core_text, limit=8)
-                keyword_text = ", ".join(f"**{keyword}**" for keyword in keywords) if keywords else "**keyword**"
                 keyword_p = p.insert_paragraph_before('')
                 keyword_p.style = 'Normal'
-                append_science_text(keyword_p, keyword_text)
-
+                append_science_text(keyword_p, ", ".join(f"**{word}**" for word in keywords) if keywords else "**keyword**")
             p._element.getparent().remove(p._element)
-
         elif "[[CONTENT_HERE]]" in text:
             for block in remaining_blocks:
                 b_type = block.get("type", "unknown")
-
                 if b_type == "subheading":
                     content = block.get("content", "")
                     if is_answer_key_heading(content):
@@ -417,76 +302,49 @@ def generate_worksheet(json_data, template_path):
                     new_p = p.insert_paragraph_before('')
                     new_p.style = 'Heading 2'
                     append_science_text(new_p, content)
-
                 elif b_type == "paragraph":
-                    content = block.get("content", "")
-                    if is_keyword_instruction_block(content) or is_keyword_list_block(content):
-                        # Keep these blocks in the main document flow only when they are explicitly present in the AI output.
-                        new_p = p.insert_paragraph_before('')
-                        new_p.style = 'Normal'
-                        append_science_text(new_p, content)
-                    else:
-                        new_p = p.insert_paragraph_before('')
-                        new_p.style = 'Normal'
-                        append_science_text(new_p, content)
-
-                elif b_type == "question":
+                    new_p = p.insert_paragraph_before('')
+                    new_p.style = 'Normal'
+                    append_science_text(new_p, block.get("content", ""))
+                elif b_type in ("question", "long_question"):
                     new_p = p.insert_paragraph_before('')
                     new_p.style = 'List Number'
+                    if b_type == "long_question":
+                        new_p.paragraph_format.space_after = Pt(12)
                     append_science_text(new_p, clean_question_text(block.get("content", "")))
-
-                elif b_type == "long_question":
-                    new_p = p.insert_paragraph_before('')
-                    new_p.style = 'List Number'
-                    new_p.paragraph_format.space_after = Pt(12)
-                    append_science_text(new_p, clean_question_text(block.get("content", "")))
-
-                    for _ in range(2):
-                        blank_p = p.insert_paragraph_before('')
-                        blank_p.style = 'Normal'
-                        blank_p.paragraph_format.space_before = Pt(0)
-                        blank_p.paragraph_format.space_after = Pt(0)
-
+                    if b_type == "long_question":
+                        for _ in range(2):
+                            blank_p = p.insert_paragraph_before('')
+                            blank_p.style = 'Normal'
+                            blank_p.paragraph_format.space_before = Pt(0)
+                            blank_p.paragraph_format.space_after = Pt(0)
                 elif b_type == "answer_key":
                     continue
-
                 elif b_type == "image":
                     new_p = p.insert_paragraph_before('')
                     new_p.style = 'Normal'
-                    image_desc = block.get("content", "Insert image here")
-                    run = new_p.add_run(f"[ 📷 PLACEHOLDER: {image_desc} ]")
+                    run = new_p.add_run(f"[ 📷 PLACEHOLDER: {block.get('content', 'Insert image here')} ]")
                     run.font.bold = True
-
                 elif b_type == "table":
                     table_data = block.get("table_data", {})
                     rows_data = table_data.get("rows", [])
-
                     if rows_data:
-                        col_count = table_data.get("column_count", len(rows_data[0]))
-                        row_count = len(rows_data)
-                        table = doc.add_table(rows=row_count, cols=col_count)
+                        table = doc.add_table(rows=len(rows_data), cols=table_data.get("column_count", len(rows_data[0])))
                         try:
                             table.style = 'Science_Table_Style'
                         except KeyError:
                             pass
-
                         p._p.addprevious(table._tbl)
-
                         for r_idx, row_data in enumerate(rows_data):
                             for c_idx, cell_text in enumerate(row_data):
                                 cell_paragraph = table.cell(r_idx, c_idx).paragraphs[0]
                                 cell_paragraph.text = ""
                                 append_science_text(cell_paragraph, str(cell_text))
-
                 else:
                     new_p = p.insert_paragraph_before('')
                     new_p.style = 'Normal'
-                    error_text = str(block.get("content", f"[AI Generated Unrecognized Block: '{b_type}']"))
-                    append_science_text(new_p, error_text)
-
-            p.text = ""
+                    append_science_text(new_p, str(block.get("content", f"[AI Generated Unrecognized Block: '{b_type}']")))
             p._element.getparent().remove(p._element)
-
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
@@ -497,25 +355,18 @@ def generate_answer_key_document(json_data, template_path):
     template = Path(template_path)
     doc = Document(template) if template.exists() else Document()
     title = json_data.get("worksheet_title", "Science Worksheet")
-    blocks = json_data.get("document_blocks", [])
-    answer_blocks = [block for block in blocks if block.get("type") == "answer_key"]
-
+    answer_blocks = [block for block in json_data.get("document_blocks", []) if block.get("type") == "answer_key"]
     for p in list(iter_all_paragraphs(doc)):
         text = normalize_placeholder_text(p.text)
-
         if "[[WORKSHEET_TITLE]]" in text:
             p.text = ""
             append_science_text(p, f"{title} - Answers")
-
         elif "[[CONTENT_HERE]]" in text:
             for block in answer_blocks:
                 new_p = p.insert_paragraph_before('')
                 new_p.style = 'Normal'
                 append_science_text(new_p, block.get("content", ""))
-
-            p.text = ""
             p._element.getparent().remove(p._element)
-
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
@@ -528,7 +379,6 @@ def prepare_template_path(uploaded_template):
         if default_template.exists():
             return str(default_template)
         raise FileNotFoundError("The default template file 'Generic Template.docx' was not found.")
-
     temp_dir = Path(tempfile.gettempdir()) / "cover_worksheet_templates"
     temp_dir.mkdir(exist_ok=True)
     safe_name = Path(uploaded_template.name).stem.replace(" ", "_")
@@ -537,34 +387,20 @@ def prepare_template_path(uploaded_template):
     return str(temp_path)
 
 
-# --- 4. STREAMLIT UI ---
 def main():
     st.set_page_config(page_title="Science Worksheet Generator", page_icon="🔬")
-
     st.title("Worksheet Generator")
-    st.write(
-        "This app helps you create a ready-to-use worksheet in just a few steps. You type in the topic, year group, and ability level, "
-        "and the app sends that information to Gemini, which writes the worksheet content in a structured format. Streamlit is the tool "
-        "that runs the website and collects your inputs. The app then turns that content into a Word document you can download. "
-        "GitHub stores the project files and keeps the app organised, so it can be shared and updated easily."
-    )
-
+    st.write("This app helps you create a ready-to-use worksheet in just a few steps. You type in the topic, year group, and ability level, and the app sends that information to Gemini, which writes the worksheet content in a structured format. Streamlit is the tool that runs the website and collects your inputs. The app then turns that content into a Word document you can download. GitHub stores the project files and keeps the app organised, so it can be shared and updated easily.")
     render_section_label("What should this worksheet be about")
     topic_input = st.text_input("", placeholder="e.g. Photosynthesis give the equation and explain how temperature, light intensity and CO2 affect the rate", label_visibility="collapsed")
-
     render_section_label("Year Group")
     year_group_input = st.text_input("", placeholder="e.g. Year 10", label_visibility="collapsed")
-
     render_section_label("What is the ability of the group?")
     ability_input = st.text_input("", placeholder="e.g. Lower-attaining / mixed / high ability", label_visibility="collapsed")
-    worksheet_structure_input = st.text_area(
-        "Worksheet elements-You can modify the prompt here",
-        value=DEFAULT_WORKSHEET_STRUCTURE,
-        height=220,
-        help="Edit the worksheet structure here before generating the worksheet.",
-    )
+    worksheet_structure_input = st.text_area("Worksheet elements-You can modify the prompt here", value=DEFAULT_WORKSHEET_STRUCTURE, height=220, help="Edit the worksheet structure here before generating the worksheet.")
     api_key_input = resolve_gemini_api_key()
     uploaded_template = st.file_uploader("Optional: upload a Word template (.docx)", type=["docx"])
+    show_gemini_json = st.checkbox("Show Gemini JSON response (debug)", value=False, help="When enabled, displays the parsed JSON returned by Gemini after generating a worksheet.")
 
     if "worksheet_bytes" not in st.session_state:
         st.session_state["worksheet_bytes"] = None
@@ -576,49 +412,22 @@ def main():
         st.session_state["answer_file_name"] = "answers.docx"
 
     with st.expander("Template guidance", expanded=False):
-        st.write(
-            "The template is a Word document that contains the basic structure and formatting for your worksheet. If you want to modify what the worksheet looks like then you can edit the template given here. You can also change the styling of sections by editing the document styles in Word."
-        )
-        st.table(
-            {
-                "Style": ["Heading 2", "Normal", "List Number"],
-                "Used for": [
-                    "Section headings such as Quick Questions and Extension",
-                    "Paragraph text, instructions, and image placeholders",
-                    "Question numbering and list-style questions",
-                ],
-            }
-        )
-
+        st.write("The template is a Word document that contains the basic structure and formatting for your worksheet. If you want to modify what the worksheet looks like then you can edit the template given here. You can also change the styling of sections by editing the document styles in Word.")
+        st.table({"Style": ["Heading 2", "Normal", "List Number"], "Used for": ["Section headings such as Quick Questions and Extension", "Paragraph text, instructions, and image placeholders", "Question numbering and list-style questions"]})
         template_path = Path("Generic Template.docx")
         if template_path.exists():
-            template_bytes = template_path.read_bytes()
-            st.download_button(
-                label="Download starter template",
-                data=template_bytes,
-                file_name="Generic Template.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            )
+            st.download_button(label="Download starter template", data=template_path.read_bytes(), file_name="Generic Template.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
     with st.expander("Environmental Impact", expanded=False):
-        st.write(
-            "Each use of this app consumes around 1000 input tokens and 5000 output tokens. "
-            "That is roughly the same energy use as watching about half an hour of YouTube on a laptop, "
-            "driving about 150m in an electric car, or boiling enough water to make one cup of tea."
-        )
+        st.write("Each use of this app consumes around 1000 input tokens and 5000 output tokens. That is roughly the same energy use as watching about half an hour of YouTube on a laptop, driving about 150m in an electric car, or boiling enough water to make one cup of tea.")
 
     if st.button("Generate Worksheet", type="primary"):
         if topic_input.strip():
             try:
                 with st.spinner("Contacting Gemini to build the worksheet..."):
-                    json_data = call_gemini_api(
-                        topic_input,
-                        year_group=year_group_input,
-                        ability=ability_input,
-                        api_key=api_key_input or None,
-                        worksheet_structure=worksheet_structure_input,
-                    )
-                if os.getenv("DEBUG_GEMINI_JSON") == "1":
+                    json_data = call_gemini_api(topic_input, year_group=year_group_input, ability=ability_input, api_key=api_key_input or None, worksheet_structure=worksheet_structure_input)
+                if show_gemini_json:
+                    st.subheader("Gemini JSON response")
                     st.json(json_data)
                 template_path = prepare_template_path(uploaded_template)
                 word_buffer, doc_title = generate_worksheet(json_data, template_path)
@@ -634,20 +443,9 @@ def main():
             st.error("Please enter a topic first.")
 
     if st.session_state.get("worksheet_bytes") is not None:
-        st.download_button(
-            label="📥 Download Word Document",
-            data=st.session_state["worksheet_bytes"],
-            file_name=st.session_state["worksheet_file_name"],
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-
+        st.download_button(label="📥 Download Word Document", data=st.session_state["worksheet_bytes"], file_name=st.session_state["worksheet_file_name"], mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     if st.session_state.get("answer_bytes") is not None:
-        st.download_button(
-            label="📥 Download Answers Document",
-            data=st.session_state["answer_bytes"],
-            file_name=st.session_state["answer_file_name"],
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
+        st.download_button(label="📥 Download Answers Document", data=st.session_state["answer_bytes"], file_name=st.session_state["answer_file_name"], mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 if __name__ == "__main__":
