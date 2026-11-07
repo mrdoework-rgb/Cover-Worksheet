@@ -244,17 +244,21 @@ def normalize_placeholder_text(value):
     return (value or "").replace("\u00a0", " ").strip()
 
 
-def insert_paragraph_after(element, style="Normal"):
-    new_p = OxmlElement("w:p")
-    element.addnext(new_p)
-    paragraph = Paragraph(new_p, element.getparent())
-    paragraph.style = style
+def insert_paragraph_after(doc, element, style="Normal"):
+    """Create a document-owned paragraph, then position it after a body element.
+
+    Constructing Paragraph with element.getparent() is incorrect: that parent is
+    an lxml CT_Body object, which does not expose python-docx's required .part.
+    """
+    paragraph = doc.add_paragraph(style=style)
+    paragraph._p.getparent().remove(paragraph._p)
+    element.addnext(paragraph._p)
     return paragraph
 
 
 def insert_keywords_after_core_box(doc, placeholder_paragraph, keywords):
-    # If the placeholder is in a table cell, put the instruction and keyword list
-    # after the containing table so they are outside the bordered core-text box.
+    # Put the instruction and keyword list after the containing table so they
+    # appear outside the bordered core-text box.
     ancestor = placeholder_paragraph._p.getparent()
     table_element = None
     while ancestor is not None:
@@ -263,9 +267,9 @@ def insert_keywords_after_core_box(doc, placeholder_paragraph, keywords):
             break
         ancestor = ancestor.getparent()
     anchor = table_element if table_element is not None else placeholder_paragraph._p
-    instruction = insert_paragraph_after(anchor)
+    instruction = insert_paragraph_after(doc, anchor)
     append_science_text(instruction, KEYWORD_INSTRUCTION)
-    keyword_line = insert_paragraph_after(instruction._p)
+    keyword_line = insert_paragraph_after(doc, instruction._p)
     append_science_text(keyword_line, ", ".join(f"**{word.strip()}**" for word in keywords))
 
 
