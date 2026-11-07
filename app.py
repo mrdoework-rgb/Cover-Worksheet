@@ -14,7 +14,6 @@ from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
-from docx.text.paragraph import Paragraph
 
 
 DEFAULT_WORKSHEET_STRUCTURE = """Every worksheet must structurally contain the following content:
@@ -133,22 +132,18 @@ def render_section_label(text):
     st.markdown(f"<strong>{text}</strong>", unsafe_allow_html=True)
 
 
-def set_cell_border(cell, size_pt=0.75, color="B7C9D6"):
+def set_cell_border(cell, size_pt=2.25, color="000000"):
     ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
     tc_pr = cell._tc.get_or_add_tcPr()
-    borders = tc_pr.find(qn("w:tcBorders"))
-    if borders is None:
-        borders = OxmlElement("w:tcBorders")
-        tc_pr.append(borders)
-    for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
-        edge = borders.find(qn(f"w:{side}"))
-        if edge is None:
-            edge = OxmlElement(f"w:{side}")
-            borders.append(edge)
+    borders = OxmlElement("w:tcBorders")
+    for side in ("top", "left", "bottom", "right"):
+        edge = OxmlElement(f"w:{side}")
         edge.set(f"{ns}val", "single")
         edge.set(f"{ns}sz", str(int(size_pt * 8)))
         edge.set(f"{ns}space", "0")
         edge.set(f"{ns}color", color)
+        borders.append(edge)
+    tc_pr.append(borders)
 
 
 def build_gemini_prompt(topic, year_group=None, ability=None, worksheet_structure=None):
@@ -354,7 +349,6 @@ def generate_worksheet(json_data, template_path):
                         except KeyError:
                             pass
                         paragraph._p.addprevious(table._tbl)
-                        has_headers = table_data.get("has_headers", False)
                         for row_index, row_data in enumerate(rows):
                             for column_index, cell_text in enumerate(row_data[:column_count]):
                                 cell = table.cell(row_index, column_index)
@@ -362,12 +356,6 @@ def generate_worksheet(json_data, template_path):
                                 cell_paragraph.text = ""
                                 append_science_text(cell_paragraph, str(cell_text))
                                 set_cell_border(cell)
-                                if has_headers and row_index == 0:
-                                    for run in cell_paragraph.runs:
-                                        run.font.bold = True
-                                    shading = OxmlElement("w:shd")
-                                    shading.set(qn("w:fill"), "D9EAF7")
-                                    cell._tc.get_or_add_tcPr().append(shading)
             paragraph._element.getparent().remove(paragraph._element)
 
     if not core_box_rendered:
@@ -457,7 +445,6 @@ def main():
                 st.session_state["worksheet_bytes"] = word_buffer.getvalue()
                 st.session_state["worksheet_file_name"] = f"{doc_title}.docx"
                 st.session_state["answer_bytes"] = answer_buffer.getvalue()
-                # answer_title already includes the suffix; don't append it again.
                 st.session_state["answer_file_name"] = f"{answer_title}.docx"
                 st.success("Worksheet generated successfully!")
             except Exception as exc:
