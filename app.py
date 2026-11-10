@@ -278,7 +278,7 @@ def call_gemini_api(topic, year_group=None, ability=None, api_key=None, workshee
     resolved_key = api_key or get_gemini_api_key()
     if not resolved_key:
         raise ValueError("Enter a Gemini API key or set the GEMINI_API_KEY environment variable or Streamlit secret before generating a worksheet.")
-    model = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
+    model = os.getenv("GEMINI_MODEL") or "gemini-3.8-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={resolved_key}"
     payload = {
         "contents": [{"role": "user", "parts": [{"text": build_gemini_prompt(topic, year_group, ability, worksheet_structure, core_text_word_count)}]}],
